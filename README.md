@@ -1,10 +1,12 @@
 # Akilli Fabrikalarda Otonom Robot (AGV) Takibi
 
-Bu proje, MTH407 donem projesi dokumanindaki zaman tabanli lokalizasyon ve takip kapsamına gore hazirlanmistir. Senaryo, 2 boyutlu bir fabrika zemininde hareket eden AGV'nin sabit UWB anchor antenlerinden uretilen TDOA olcumleriyle takip edilmesini modeller.
+Bu proje, MTH407 donem projesi dokumanindaki zaman tabanli lokalizasyon ve takip kapsamina gore hazirlanmistir. Senaryo, 2 boyutlu bir fabrika zemininde hareket eden AGV'nin sabit UWB anchor antenlerinden uretilen TDOA olcumleriyle takip edilmesini modeller.
 
 ## Icerik
 
-- `run_agv_tdoa_ekf.m`: Simulasyon, TDOA olcum uretimi, LSE ilklendirme, EKF takip ve sensor geometrisi analizini iceren ana MATLAB dosyasi.
+- `agv_tdoa_ekf.py`: Simulasyon, TDOA olcum uretimi, LSE ilklendirme, EKF takip ve sensor geometrisi analizini iceren ana Python dosyasi.
+- `requirements.txt`: Gerekli Python kutuphaneleri.
+- `run_agv_tdoa_ekf.m`: Ayni modelin onceki MATLAB surumu.
 - `outputs/tracking_results.csv`: Zaman, gercek konum, tahmin konumu, hata ve NLOS anchor sayisi.
 - `outputs/main_metrics.csv`: Ana senaryo RMSE/ortalama/maksimum hata metrikleri.
 - `outputs/geometry_analysis.csv`: Iyi ve zayif sensor geometrisi icin Monte Carlo RMSE ve kosul sayisi karsilastirmasi.
@@ -14,16 +16,22 @@ Bu proje, MTH407 donem projesi dokumanindaki zaman tabanli lokalizasyon ve takip
 
 ## Calistirma
 
-MATLAB icinde:
-
-```matlab
-run('run_agv_tdoa_ekf.m')
-```
-
-Komut satirinda:
+Gerekli kutuphaneleri kurmak icin:
 
 ```powershell
-matlab -batch "run('run_agv_tdoa_ekf.m')"
+pip install -r requirements.txt
+```
+
+Projeyi calistirmak icin:
+
+```powershell
+python agv_tdoa_ekf.py
+```
+
+Bu makinede Python PATH uzerinde gorunmuyorsa Anaconda kurulumu ile su komut da kullanilabilir:
+
+```powershell
+C:\ANACONDA\python.exe agv_tdoa_ekf.py
 ```
 
 ## Model Ozeti
@@ -40,7 +48,7 @@ matlab -batch "run('run_agv_tdoa_ekf.m')"
 ## Rapor Icin Onerilen Basliklar
 
 1. Problem tanimi: Akilli fabrikada AGV takibi ve UWB anchor yerlestirmesi
-2. Simulasyon ortami: fabrika boyutu, anchor konumlari, engeller ve AGV yoruengesi
+2. Simulasyon ortami: fabrika boyutu, anchor konumlari, engeller ve AGV yorungesi
 3. TDOA olcum modeli: menzil farki denklemi, referans anchor secimi ve gurultu kovaryansi
 4. LSE ilklendirme: ilk konum ve kovaryans tahmini
 5. EKF tasarimi: durum modeli, olcum Jacobian'i, surec/olcum kovaryanslari
