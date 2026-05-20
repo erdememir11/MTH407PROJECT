@@ -1,193 +1,177 @@
-﻿# Fabrika Ortaminda Batarya Yerlestirme Robotu Takibi
+# Fabrika Ortamında Batarya Yerleştirme Robotunun UWB/TDOA ve EKF ile Takibi
 
-Bu proje, MTH407 donem projesi kapsaminda UWB/TDOA olcumleri ile bir mobil robotun 2D fabrika ortaminda takip edilmesini modeller. Guncel senaryo, Parking Docks bolgesinden baslayan robotun Battery Loading / Pickup noktasinda bataryayi almasi ve drop-off noktasina devam etmesidir.
+Bu proje, iki boyutlu bir fabrika ortamında hareket eden batarya yerleştirme görevli mobil robotun UWB tabanlı TDOA ölçümleri kullanılarak takip edilmesini amaçlamaktadır. Robotun gerçek hareketi simülasyon ortamında üretilmekte, sabit konumlu UWB sensörlerinden gürültülü TDOA ölçümleri alınmakta, ilk konum tahmini LSE yöntemiyle yapılmakta ve takip işlemi EKF ile gerçekleştirilmektedir.
 
-Ana algoritma yapisi:
+Projedeki ana inceleme konusu, sensör geometrisinin takip başarısına etkisidir. Bu nedenle özellikle 4 sensörlü üç farklı geometri ayrıntılı olarak incelenmiş, ayrıca sensör sayısı 4'ten 10'a kadar artırıldığında performansın nasıl değiştiği analiz edilmiştir.
 
-- Gercek robot hareketi: waypoint tabanli sabit hiz modeli
-- Olcum modeli: UWB anchor antenleri ile TDOA menzil farki
-- Baslangic tahmini: LSE / Gauss-Newton
-- Takip algoritmasi: EKF
-- Performans analizi: 4 sensor icin 3 geometri ve 4-10 sensor sayisi karsilastirmasi
+## Projenin Amacı
 
-## Dosyalar
+Akıllı fabrikalarda mobil robotlar üretim hattı, depo, şarj alanı ve teslim noktaları arasında hareket eder. Bu robotların konumunun güvenilir biçimde takip edilmesi; görev güvenliği, rota doğrulama ve fabrika otomasyonu açısından önemlidir.
 
-- `agv_tdoa_ekf.py`: Ana Python simulasyon, LSE, EKF ve analiz kodu.
-- `requirements.txt`: Gerekli Python paketleri.
-- `factory_geometry_visual.py`: Sadece fabrika geometrisini cizen aciklamali Python kodu.
-- `outputs/tracking_results.csv`: Zaman, gercek konum, tahmin konumu, hata ve NLOS sensor sayisi.
-- `outputs/main_metrics.csv`: Ana takip senaryosu hata metrikleri.
-- `outputs/four_sensor_geometry_analysis.csv`: 4 sensorlu 3 farkli geometri karsilastirmasi.
-- `outputs/sensor_count_analysis.csv`: 4-10 sensor sayisi karsilastirmasi.
-- `outputs/factory_geometry_only.png`: Sadece fabrika geometrisi, bolgeler, kapilar ve engeller.
-- `outputs/battery_robot_tracking_map.png`: Fabrika haritasi, waypoint rotasi, engeller, sensorler ve EKF takibi.
-- `outputs/tracking_time_series.png`: x/y konumu ve zamanla konum hatasi.
-- `outputs/geometry_and_sensor_count_analysis.png`: Geometri ve sensor sayisi analiz grafigi.
+Bu projede ele alınan görev şu şekildedir:
 
-## Calistirma
+1. Robot `Parking Docks` alanından çıkar.
+2. `Battery Loading / Pickup` noktasına gider.
+3. Pickup noktasında 5 saniye bekleyerek batarya yükleme işlemini temsil eder.
+4. Gate-2 açıklığından ana koridora çıkar.
+5. Ana koridor üzerinden en az yön değişimiyle `Drop-off` noktasına ilerler.
+6. Drop-off noktasına ulaştığında simülasyon sonlandırılır.
 
-Gerekli paketler:
+## Kullanılan Yöntemlerin Özeti
+
+| Bileşen | Kullanılan yöntem | Açıklama |
+|---|---|---|
+| Çalışma ortamı | 2B fabrika geometrisi | Duvarlar, kapılar, bölgeler ve şişirilmiş engeller tanımlanmıştır. |
+| Robot hareketi | Sabit hızlı görev fazları | Robot belirlenen görev noktaları arasında 1 m/s hızla ilerler. |
+| Ölçüm sistemi | UWB/TDOA | Sensörler arası varış zamanı farkından menzil farkı ölçümü üretilir. |
+| Gürültü modeli | LOS/NLOS Gauss gürültüsü | Engel kesişimi olan bağlantılarda daha yüksek gürültü kullanılır. |
+| İlk konum tahmini | LSE / Gauss-Newton | EKF başlangıç durumu ilk TDOA ölçümlerinden tahmin edilir. |
+| Takip algoritması | EKF | Doğrusal olmayan TDOA ölçüm modeli Jacobian ile kullanılır. |
+| Performans ölçütü | RMSE | Gerçek ve tahmin edilen konumlar arasındaki hata değerlendirilir. |
+
+## Dosya Yapısı
+
+| Dosya / Klasör | Açıklama |
+|---|---|
+| `agv_tdoa_ekf.py` | Ana simülasyon, TDOA ölçüm üretimi, LSE ilklendirme, EKF takip ve sensör analiz kodu. |
+| `factory_geometry_visual.py` | Yalnızca fabrika geometrisini gösteren açıklamalı görsel üretim kodu. |
+| `generate_analysis_figures.py` | 4 sensörlü A1 önce/sonra analizi ve 4-10 sensör artış analizi için ayrıntılı grafik üretim kodu. |
+| `requirements.txt` | Gerekli Python paketleri. |
+| `outputs/` | Simülasyon ve analiz sonucu oluşan grafikler ve CSV dosyaları. |
+
+## Çalıştırma
+
+Gerekli paketleri kurmak için:
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-Bu makinede Python PATH uzerinde gorunmuyorsa Anaconda ile:
+Ana takip simülasyonunu çalıştırmak için:
 
 ```powershell
 C:\ANACONDA\python.exe agv_tdoa_ekf.py
 ```
 
-Normal Python kurulumunda:
+Yalnızca fabrika geometrisini çizmek için:
 
 ```powershell
-python agv_tdoa_ekf.py
+C:\ANACONDA\python.exe factory_geometry_visual.py
 ```
 
-## Calisma Ortami
+Ayrıntılı 4 sensör ve 4-10 sensör grafiklerini üretmek için:
 
-PDF dokumanindaki yeni fabrika modeli kullanildi.
+```powershell
+C:\ANACONDA\python.exe generate_analysis_figures.py
+```
 
-Koordinat sistemi:
+## Fabrika Ortamı ve Koordinat Sistemi
 
-- Orijin: sol-alt kose
-- x ekseni: saga dogru
-- y ekseni: yukari dogru
-- Birim: metre
+Fabrika ortamı iki boyutlu Kartezyen koordinat sistemiyle modellenmiştir. Koordinatlar metre cinsindendir.
 
-Alan sinirlari:
+| Özellik | Değer |
+|---|---:|
+| Harita genişliği | 50 m |
+| Harita yüksekliği | 30 m |
+| Orijin | Sol-alt köşe, `(0, 0)` |
+| x ekseni | Sağa doğru artar |
+| y ekseni | Yukarı doğru artar |
+
+Alan sınırları:
 
 ```text
-0 <= x <= 50 m
-0 <= y <= 30 m
+0 <= x <= 50
+0 <= y <= 30
 ```
 
-Baslangic, pickup ve hedef:
+## Fabrika Bölgeleri
 
-| Nokta | Koordinat [m] | Anlam |
-|---|---:|---|
-| S | `(5, 25)` | Parking Docks baslangici |
-| P | `(5, 15)` | Battery Loading / Pickup noktasi |
-| G | `(45, 10)` | Batarya yerlestirme / drop-off hedefi |
+Fabrika, robot görevinin anlaşılması için bölgelere ayrılmıştır. Bu bölgeler takip algoritmasına doğrudan ölçüm olarak girmez; ortamın ve görevin açıklanmasını sağlar.
 
-Semantik bolgeler:
-
-| Bolge | Koordinat araligi | Rol |
+| Bölge | Koordinat aralığı | Görevdeki rolü |
 |---|---|---|
-| Parking Docks | `0 <= x <= 25`, `20 <= y <= 30` | Robotun goreve basladigi park/dock bolgesi |
-| Battery Loading / Pickup | `0 <= x <= 25`, `10 <= y <= 20` | Robotun bataryayi teslim aldigi bolge |
-| Main transit aisle | `25 <= x <= 50`, `10 <= y <= 30` | Ana ulasim koridoru |
-| Drop-off | `x = 45`, `y = 10` | Batarya yerlestirme noktasi |
+| `Parking Docks` | `0 <= x <= 25`, `20 <= y <= 30` | Robotun göreve başladığı park/dock bölgesi. |
+| `Battery Loading / Pickup` | `0 <= x <= 25`, `10 <= y <= 20` | Robotun bataryayı teslim aldığı bölge. |
+| `Main Transit Aisle` | `25 <= x <= 50`, `10 <= y <= 30` | Robotun drop-off noktasına ilerlediği ana koridor. |
+| `Lower Service Area` | `0 <= x <= 50`, `0 <= y <= 10` | Ana görev rotasında kullanılmayan alt servis bölgesi. |
+| `Drop-off` | `(45, 10)` | Bataryanın teslim edildiği hedef nokta. |
 
-## Robot Hareket Rotasi
+## Görev Noktaları ve Robot Hareketi
 
-Robot hareketi artik cok waypointli serbest rota yerine gorev fazlariyla tanimlanir. Simulasyon robotun Parking Dock noktasindan cikmasiyla baslar, pickup noktasinda batarya yukleme icin 5 saniye bekler ve drop-off noktasina ulasinca sonlandirilir.
+Robotun hareketi görev fazları üzerinden tanımlanmıştır. Simülasyon, robotun `Parking Docks` noktasından çıkmasıyla başlar ve drop-off noktasına ulaştığında sona erer.
 
-Kodda kullanilan gorev noktalar:
-
-| Nokta | Koordinat [m] | Aciklama |
+| Görev noktası | Koordinat | Açıklama |
 |---|---:|---|
-| M0 | `(5, 25)` | Baslangic / Parking Docks |
-| M1 | `(5, 15)` | Pickup: bataryayi teslim alma ve 5 saniye bekleme |
-| M2 | `(25, 18)` | Gate-2 acikligi / main aisle girisi |
-| M3 | `(45, 10)` | Drop-off hedefi |
+| M0 | `(5, 25)` | Başlangıç noktası, Parking Docks. |
+| M1 | `(5, 15)` | Pickup noktası, batarya teslim alma. |
+| M2 | `(25, 18)` | Gate-2 açıklığı ve ana koridora giriş. |
+| M3 | `(45, 10)` | Drop-off hedef noktası. |
 
-Hareket fazlari:
+Hareket fazları:
 
-| Faz | Hareket | Hiz | Aciklama |
+| Faz | Hareket | Hız | Açıklama |
 |---|---|---:|---|
-| 1 | `(5,25) -> (5,15)` | `1.0 m/s` | Gate-1 uzerinden tamamen dikey hareket |
-| 2 | `(5,15)` uzerinde bekleme | `0.0 m/s` | 5 saniyelik batarya yukleme islemi |
-| 3 | `(5,15) -> (25,18)` | `1.0 m/s` | Gate-2 acikligindan ana koridora cikis |
-| 4 | `(25,18) -> (45,10)` | `1.0 m/s` | Ana koridordan drop-off'a en az yon degisimiyle ilerleme |
+| 1 | `(5,25) -> (5,15)` | 1.0 m/s | Robot Gate-1 üzerinden dikey olarak pickup noktasına iner. |
+| 2 | `(5,15)` üzerinde bekleme | 0.0 m/s | Robot 5 saniye durur ve batarya yükleme işlemi temsil edilir. |
+| 3 | `(5,15) -> (25,18)` | 1.0 m/s | Robot Gate-2 açıklığından ana koridora çıkar. |
+| 4 | `(25,18) -> (45,10)` | 1.0 m/s | Robot drop-off noktasına en az yön değişimiyle ilerler. |
 
 Hareket parametreleri:
 
-| Parametre | Deger |
+| Parametre | Değer |
 |---|---:|
-| Zaman adimi `dt` | `0.5 s` |
-| Nominal hiz | `1.0 m/s` |
-| Pickup bekleme suresi | `5.0 s` |
-| Toplam simulasyon suresi | `57.5 s` |
-| Simulasyon bitis kosulu | Drop-off noktasina ulasma |
+| Zaman adımı `dt` | 0.5 s |
+| Nominal hız | 1.0 m/s |
+| Pickup bekleme süresi | 5.0 s |
+| Toplam simülasyon süresi | 57.5 s |
+| Simülasyon bitiş koşulu | Drop-off noktasına ulaşma |
 
-EKF durum vektoru:
+## Duvarlar, Kapılar ve Engeller
 
-```text
-X = [x, y, vx, vy]^T
-```
+Fabrika içindeki duvarlar ve bölmeler robot için fiziksel engel kabul edilmiştir. Robot noktasal olarak modellenmiştir; ancak gerçek robot boyutu ve güvenlik mesafesi dikkate alınarak duvarlar şişirilmiş yasak bölgeler haline getirilmiştir.
 
-Sabit hiz modeli:
-
-```text
-x_k = x_{k-1} + dt * vx_{k-1}
-y_k = y_{k-1} + dt * vy_{k-1}
-vx_k = vx_{k-1}
-vy_k = vy_{k-1}
-```
-
-Surec gurultusu:
-
-```text
-sigma_accel = 0.35 m/s^2
-```
-
-## Engel ve Kapi Modeli
-
-Robot noktasal kabul edilir; buna karsilik duvar ve bolmeler robot yaricapi ve guvenlik mesafesi kadar sisirilir.
-
-Robot ve guvenlik parametreleri:
-
-| Parametre | Deger |
+| Parametre | Değer |
 |---|---:|
-| Robot yaricapi `r_robot` | `0.35 m` |
-| Guvenlik mesafesi `d_margin` | `0.25 m` |
-| Toplam guvenli sisirme `d_safe` | `0.60 m` |
-| Ham duvar kalinligi | `0.20 m` |
-| Sisirilmis yari kalinlik | `0.70 m` |
+| Robot yarıçapı | 0.35 m |
+| Güvenlik mesafesi | 0.25 m |
+| Toplam güvenlik payı | 0.60 m |
+| Ham duvar kalınlığı | 0.20 m |
+| Şişirilmiş yarı kalınlık | 0.70 m |
 
-Ham bolme/duvar segmentleri:
+Ham duvar ve bölme segmentleri:
 
-| Kod | Geometri | Aciklama |
+| Kod | Geometri | Açıklama |
 |---|---|---|
-| B0 | Dis sinir: `x=0`, `x=50`, `y=0`, `y=30` | Robot alan disina cikamaz |
-| B1 | `y=20`, `0 <= x <= 25` | Parking Docks ile Battery Loading / Pickup arasindaki bolme |
-| B2 | `x=25`, `10 <= y <= 30` | Sol bolgeler ile main transit aisle arasindaki bolme |
-| B3 | `y=10`, `0 <= x <= 40` | Alt bolgeyi ayiran yatay sinir |
-| B4 | `x=40`, `0 <= y <= 10` | Drop-off tarafindaki dikey sinir |
+| B0 | Dış sınır: `x=0`, `x=50`, `y=0`, `y=30` | Robot harita dışına çıkamaz. |
+| B1 | `y=20`, `0 <= x <= 25` | Parking Docks ile Battery Loading / Pickup arasındaki yatay bölme. |
+| B2 | `x=25`, `10 <= y <= 30` | Sol bölgeler ile ana koridor arasındaki dikey bölme. |
+| B3 | `y=10`, `0 <= x <= 40` | Alt servis bölgesini ayıran yatay duvar. |
+| B4 | `x=40`, `0 <= y <= 10` | Drop-off tarafındaki dikey alt bölme. |
 
-Kodda kapilar/acikliklar nedeniyle B1 ve B2 parcalara ayrilmistir.
+Kapılar ve açıklıklar:
 
-Sisirilmis yasak dikdortgenler:
-
-| Engel | Dikdortgen `(xmin, ymin, xmax, ymax)` | Neden |
+| Kapı / açıklık | Koordinat tanımı | Açıklama |
 |---|---|---|
-| B1-left | `(0.0, 19.3, 4.0, 20.7)` | Gate-1 solundaki B1 parcasi |
-| B1-right | `(6.0, 19.3, 25.0, 20.7)` | Gate-1 sagindaki B1 parcasi |
-| B2-lower | `(24.3, 10.0, 25.7, 16.6)` | Gate-2 alt parcasi; B3 ile arasindaki gereksiz bosluk kaldirildi |
-| B2-upper | `(24.3, 19.0, 25.7, 30.0)` | Gate-2 ust parcasi |
-| B3 | `(0.0, 9.3, 40.0, 10.7)` | Alt yatay bolme |
-| B4 | `(39.3, 0.0, 40.7, 10.0)` | Drop-off dikey bolmesi |
+| Gate-1 | B1 üzerinde `x=4..6` aralığı | Robotun Parking Docks bölgesinden Battery Loading / Pickup bölgesine geçmesini sağlar. |
+| Gate-2 | B2 üzerinde `16.6 <= y <= 19.0` aralığı | Robotun sol bölgeden ana koridora geçmesini sağlar. |
+| Drop-off yaklaşımı | B3 yalnızca `x <= 40` için engeldir | Robotun `x > 40` tarafından drop-off noktasına yaklaşmasına izin verir. |
 
-Kapi/acikliklar:
+Şişirilmiş yasak bölgeler:
 
-| Kapi | Koordinat tanimi | Kod etkisi |
+| Engel | Dikdörtgen `(xmin, ymin, xmax, ymax)` | Açıklama |
 |---|---|---|
-| Gate-1 | `x ~= 5`, `y = 20` | B1, `x=4..6` araliginda acik birakildi |
-| Gate-2 | `x = 25`, `16.6 <= y <= 19.0` | B2, bu y araliginda acik birakildi |
-| Drop-off yaklasimi | `x > 40`, `y = 10` | B3 yalnizca `x <= 40` icin engel kabul edildi |
+| B1-left | `(0.0, 19.3, 4.0, 20.7)` | Gate-1 solundaki B1 parçası. |
+| B1-right | `(6.0, 19.3, 25.0, 20.7)` | Gate-1 sağındaki B1 parçası. |
+| B2-lower | `(24.3, 10.0, 25.7, 16.6)` | Gate-2 alt parçası. B2-lower ile B3 arasındaki gereksiz boşluk kaldırılmıştır. |
+| B2-upper | `(24.3, 19.0, 25.7, 30.0)` | Gate-2 üst parçası. |
+| B3 | `(0.0, 9.3, 40.0, 10.7)` | Alt yatay duvarın şişirilmiş hali. |
+| B4 | `(39.3, 0.0, 40.7, 10.0)` | Drop-off tarafındaki dikey duvarın şişirilmiş hali. |
 
-## TDOA Olcum Modeli
+## UWB/TDOA Ölçüm Modeli
 
-Her UWB anchor sinyal varis zamani uzerinden olcum uretir. TDOA modelinde mutlak TOA yerine referans anchor'a gore zaman farki kullanilir.
+Robotun konumu doğrudan ölçülmez. Bunun yerine fabrika içine yerleştirilmiş UWB anchor sensörleri robot sinyalinin varış zamanını algılar. Bu projede mutlak varış zamanı yerine TDOA yöntemi kullanılmıştır.
 
-Referans anchor:
-
-```text
-A1
-```
-
-Menzil farki olcum modeli:
+TDOA yönteminde bir sensör referans seçilir. Bu projede referans sensör `A1`'dir. Her ölçüm, diğer sensör ile referans sensör arasındaki menzil farkı olarak yazılır:
 
 ```text
 z_i = ||p - A_i|| - ||p - A_ref|| + v_i
@@ -195,41 +179,43 @@ z_i = ||p - A_i|| - ||p - A_ref|| + v_i
 
 Burada:
 
-- `p = [x, y]^T` robot konumu
-- `A_i` i'inci UWB anchor konumu
-- `A_ref` referans anchor konumu
-- `v_i` TDOA menzil farki gurultusu
+| Sembol | Anlam |
+|---|---|
+| `p` | Robotun iki boyutlu konumu, `[x, y]^T`. |
+| `A_i` | i'inci UWB sensörünün konumu. |
+| `A_ref` | Referans sensör olan A1'in konumu. |
+| `v_i` | TDOA menzil farkı ölçüm gürültüsü. |
 
-4 sensor kullanildiginda 1 referans + 3 fark olcumu vardir. Genel olarak `M` sensor icin olcum boyutu `M-1` olur.
+`M` adet sensör kullanıldığında ölçüm boyutu `M-1` olur. Örneğin 4 sensörlü durumda 1 referans sensör ve 3 menzil farkı ölçümü vardır.
 
-## Gurultu ve NLOS Modeli
+## Gürültü ve NLOS Modeli
 
-Fabrika icindeki bolmeler sinyal bozucu engel kabul edilir. Robot-anchor dogrusu sisirilmis engellerden biriyle kesisse o anchor icin NLOS olcum uretilir.
+Fabrika ortamında duvarlar ve bölmeler UWB sinyalini bozabilir. Robot ile sensör arasındaki doğru parçası şişirilmiş bir engelden geçerse bu bağlantı NLOS kabul edilir.
 
-| Durum | TOA standart sapmasi | Menzil karsiligi | Anlam |
+| Durum | TOA standart sapması | Menzil karşılığı | Anlam |
 |---|---:|---:|---|
-| LOS / acik gorus | `0.25 / c` saniye | `0.25 m` | Robot-anchor dogrusu engelden gecmiyor |
-| NLOS / engelli hat | `1.50 / c` saniye | `1.50 m` | Robot-anchor dogrusu engelden etkileniyor |
+| LOS | `0.25 / c` s | 0.25 m | Robot ve sensör arasında engel yoktur. |
+| NLOS | `1.50 / c` s | 1.50 m | Sinyal engelden etkilenmiştir. |
 
-TDOA kovaryans hesabi:
+TDOA kovaryansı şu şekilde hesaplanır:
 
 ```text
 Var(z_i) = c^2 * (sigma_i^2 + sigma_ref^2)
 ```
 
-Bu nedenle referans anchor'un NLOS olmasi tum TDOA olcumlerini olumsuz etkiler.
+Referans sensör A1'in NLOS olması önemlidir; çünkü referans sensördeki hata tüm TDOA fark ölçümlerini etkiler.
 
-## LSE Ilklendirme
+## LSE ile Başlangıç Konumu Tahmini
 
-EKF baslangic durumu ilk TDOA olcumlerinden bulunur.
+EKF algoritmasının başlatılabilmesi için ilk durum vektörüne ihtiyaç vardır. Bu projede ilk konum LSE yöntemiyle tahmin edilmiştir.
 
-Adimlar:
+Uygulanan işlem:
 
-1. Ilk 8 zaman adimi kullanilir.
-2. Her zaman adimi icin Gauss-Newton LSE ile `[x, y]` konumu tahmin edilir.
-3. Ilk konum, ilk LSE sonucundan alinir.
-4. Ilk hiz, ilk 8 LSE konumuna dogrusal egri uydurularak hesaplanir.
-5. Baslangic kovaryansi, LSE Jacobian yaklasimindan uretilir.
+1. İlk 8 zaman adımındaki TDOA ölçümleri alınır.
+2. Her zaman adımı için Gauss-Newton LSE ile robot konumu `[x, y]` tahmin edilir.
+3. İlk konum, ilk LSE konum tahmininden alınır.
+4. İlk hız, ilk 8 LSE konumuna doğrusal eğri uydurularak hesaplanır.
+5. İlk kovaryans matrisi, LSE Jacobian yaklaşımından elde edilir.
 
 LSE problemi:
 
@@ -239,16 +225,35 @@ min_p || z - h(p) ||_R
 
 ## EKF Takip Modeli
 
-EKF iki asamada calisir.
+EKF durum vektörü:
 
-Tahmin:
+```text
+X = [x, y, vx, vy]^T
+```
+
+Hareket modeli sabit hızlıdır:
+
+```text
+x_k  = x_{k-1}  + dt * vx_{k-1}
+y_k  = y_{k-1}  + dt * vy_{k-1}
+vx_k = vx_{k-1}
+vy_k = vy_{k-1}
+```
+
+Süreç gürültüsü robotun küçük hız sapmalarını ve modelleme belirsizliklerini temsil eder:
+
+| Parametre | Değer |
+|---|---:|
+| `sigma_accel` | 0.35 m/s² |
+
+EKF tahmin adımı:
 
 ```text
 X_pred = F X_prev
 P_pred = F P_prev F^T + Q
 ```
 
-Guncelleme:
+EKF güncelleme adımı:
 
 ```text
 y = z - h(X_pred)
@@ -258,19 +263,19 @@ X = X_pred + K y
 P = (I - K H) P_pred (I - K H)^T + K R K^T
 ```
 
-TDOA olcum Jacobian'i:
+TDOA ölçüm fonksiyonu doğrusal olmadığı için EKF'de Jacobian kullanılır:
 
 ```text
 dh_i/dp = (p - A_i) / ||p - A_i|| - (p - A_ref) / ||p - A_ref||
 ```
 
-## 4 Sensor Icin 3 Geometri
+## Dört Sensörlü Geometriler
 
-Bir sonraki proje adimi icin 4 sensor sayisi sabit tutulup 3 farkli yerlesim test edildi.
+4 sensörlü durum bu projenin ana inceleme alanıdır. Her geometride `A1` referans sensördür. Güncel durumda A1, B3 duvarının sol ucu olan `(0, 10)` konumuna alınmıştır.
 
-### G1 Corner Coverage
+### G1: Corner Coverage
 
-Alan koselerine yakin dengeli yerlesimdir. Bu geometri ana senaryo olarak kullanilir. A1, kullanici revizyonuna gore B3 duvarinin sol ucuna alinmistir.
+Bu geometri, sensörleri alanın farklı köşelerine yakın yerleştirerek dengeli kapsama sağlamayı amaçlar.
 
 | Anchor | x [m] | y [m] |
 |---|---:|---:|
@@ -279,9 +284,9 @@ Alan koselerine yakin dengeli yerlesimdir. Bu geometri ana senaryo olarak kullan
 | A3 | 49.0 | 29.0 |
 | A4 | 1.0 | 29.0 |
 
-### G2 Task Oriented
+### G2: Task Oriented
 
-Robotun gorev rotasina ve drop-off alanina daha yakin anchorlar icerir. Pratikte bu geometri bazi rota bolumlerinde referans veya diger anchorlarin NLOS olmasina daha yatkindir.
+Bu geometri, robotun görev rotası ve drop-off çevresine daha yakın sensörler kullanır.
 
 | Anchor | x [m] | y [m] |
 |---|---:|---:|
@@ -290,9 +295,9 @@ Robotun gorev rotasina ve drop-off alanina daha yakin anchorlar icerir. Pratikte
 | A3 | 28.0 | 15.5 |
 | A4 | 48.0 | 11.0 |
 
-### G3 Poor Same Wall
+### G3: Poor Same Wall
 
-Kotu geometri ornegidir. A1 B3 duvarinin sol ucunda sabit tutulurken diger anchorlar alt hatta yakin secilmistir. Bu dizilim TDOA icin y yonundeki bilgiyi zayiflatir.
+Bu geometri kötü koşulları temsil eder. A1 B3 sol ucunda sabit tutulurken diğer sensörler alt hatta yakın seçilmiştir.
 
 | Anchor | x [m] | y [m] |
 |---|---:|---:|
@@ -301,145 +306,65 @@ Kotu geometri ornegidir. A1 B3 duvarinin sol ucunda sabit tutulurken diger ancho
 | A3 | 33.0 | 2.0 |
 | A4 | 48.0 | 2.0 |
 
-Son calistirma sonucu:
+Ana simülasyon çıktısına göre 4 sensörlü geometri sonuçları:
 
-| Geometri | Ortalama RMSE [m] | RMSE std [m] | Ortalama kosul sayisi |
+| Geometri | Ortalama RMSE [m] | RMSE std [m] | Ortalama koşul sayısı |
 |---|---:|---:|---:|
-| G1 corner coverage | 0.832 | 0.077 | 4.796 |
-| G2 task oriented | 1.387 | 0.286 | 21.713 |
-| G3 poor same wall | 2.829 | 2.038 | 42.051 |
+| G1 Corner Coverage | 0.832 | 0.077 | 4.796 |
+| G2 Task Oriented | 1.387 | 0.286 | 21.713 |
+| G3 Poor Same Wall | 2.829 | 2.038 | 42.051 |
 
-Yorum: A1'in B3 duvarinin sol ucuna alinmasindan sonra G1 hala en dusuk ortalama RMSE'ye sahiptir. G2 onceki yerlesime gore belirgin sekilde iyilesmistir. G3 ise artik onceki kadar kotu degildir; cunku A1'in `(0,10)` konumuna alinmasi, tamamen alt hatta yigilmis referans geometrisini kismen bozarak kosullamayi iyilestirmistir.
+Bu sonuçlara göre G1 en düşük ortalama RMSE değerini vermektedir. G2, görev rotasına yakın sensörler kullandığı için bazı durumlarda iyi sonuç üretse de koşul sayısı G1'e göre daha yüksektir. G3 ise geometrik olarak daha zayıftır; hata ortalaması ve değişkenliği daha fazladır.
 
-## A1 Revizyonu Once / Sonra Karsilastirmasi
+## A1 Sensörü Önce / Sonra Karşılaştırması
 
-A1 revizyonundan once referans anchor G1 ve sensor sayisi analizinde `(1,1)` konumundaydi. Revizyondan sonra A1, B3 duvarinin en sol noktasi olan `(0,10)` konumuna tasindi.
+Son revizyonda A1 sensörü B3 duvarının sol ucuna alınmıştır.
 
-Iki farkli sonuc tipi vardir:
+| Durum | A1 konumu |
+|---|---:|
+| Revizyon öncesi | `(1, 1)` |
+| Revizyon sonrası | `(0, 10)` |
 
-- Ana takip RMSE: tek bir sabit rastgele tohumla calisan ana senaryo sonucudur.
-- Ortalama RMSE: Monte Carlo tekrarlarinin ortalamasidir; geometri karsilastirmasi icin daha guvenilir yorum budur.
+Bu karşılaştırmada iki farklı sonuç türü vardır:
 
-| Metrik | A1 once `(1,1)` | A1 sonra `(0,10)` | Yorum |
+| Sonuç türü | Açıklama |
+|---|---|
+| Ana takip RMSE | Tek bir sabit rastgele tohumla çalıştırılan ana senaryo sonucudur. |
+| Ortalama RMSE | Monte Carlo tekrarlarının ortalamasıdır ve geometri karşılaştırması için daha güvenilir kabul edilir. |
+
+| Metrik | A1 önce `(1,1)` | A1 sonra `(0,10)` | Yorum |
 |---|---:|---:|---|
-| Ana takip RMSE | 0.692 | 0.675 | Tekil ana kosuda biraz iyilesti |
-| G1 4-sensor ortalama RMSE | 0.814 | 0.832 | Monte Carlo ortalamasinda biraz kotulesti |
-| G2 4-sensor ortalama RMSE | 1.860 | 1.387 | Belirgin iyilesti |
-| G3 4-sensor ortalama RMSE | 14.607 | 2.829 | Cok ciddi iyilesti |
-| 8 sensor ortalama RMSE | 0.737 | 0.743 | Neredeyse ayni, cok az kotulesti |
-| 10 sensor ortalama RMSE | 0.744 | 0.744 | Pratikte ayni kaldi |
+| Ana takip RMSE | 0.692 | 0.675 | Tekil ana senaryoda iyileşme vardır. |
+| G1 4 sensör ortalama RMSE | 0.814 | 0.832 | G1 için küçük bir kötüleşme vardır. |
+| G2 4 sensör ortalama RMSE | 1.860 | 1.387 | G2 belirgin biçimde iyileşmiştir. |
+| G3 4 sensör ortalama RMSE | 14.607 | 2.829 | G3 çok ciddi biçimde iyileşmiştir. |
+| 8 sensör ortalama RMSE | 0.737 | 0.743 | Değişim çok küçüktür. |
+| 10 sensör ortalama RMSE | 0.744 | 0.744 | Pratikte aynı kalmıştır. |
 
-Sonuc: "A1'i B3 sol ucuna almak her durumda daha iyi" demek dogru olmaz. Ana tekil takip senaryosunda iyilesme var, G2 ve G3 geometrilerinde belirgin iyilesme var; fakat G1 corner coverage ve 8 sensor ortalamasi cok az kotulesiyor. Rapor icin en dogru yorum: A1'in B3 sol ucuna alinmasi bazi kotu geometrileri stabilize ediyor, fakat dengeli kose geometrisinde kucuk bir bedel olusturuyor.
+Bu nedenle A1'in B3 sol ucuna alınması her durumda mutlak bir iyileşme sağlamaz. Ana takip senaryosunda, G2'de ve G3'te iyileşme vardır; ancak dengeli G1 geometrisinde küçük bir performans kaybı oluşmaktadır. Rapor yorumunda bu fark açıkça belirtilmelidir.
 
-## Detayli Grafik Dosyalari
+## Sensör Sayısı Analizi
 
-4 sensorlu geometri ana inceleme alani oldugu icin A1 revizyonunun oncesi ve sonrasi ayri klasorlere ayrildi. Bu grafikler `generate_analysis_figures.py` ile uretilir.
+Sensör sayısı 4'ten 10'a kadar artırılmıştır. Maksimum sensör sayısı bu aşama için 10 seçilmiştir. Bunun nedeni 50 m x 30 m büyüklüğündeki fabrika alanında 10 sensörün hem kapsama açısından yeterli bir üst sınır olması hem de daha fazla sensörün maliyet ve karmaşıklık açısından anlamlı bir ilk analiz sınırını aşmasıdır.
 
-Calistirma:
+Kullanılan 10 sensörlük maksimum havuz:
 
-```powershell
-C:\ANACONDA\python.exe generate_analysis_figures.py
-```
+| Sıra | x [m] | y [m] | Açıklama |
+|---:|---:|---:|---|
+| 1 | 0.0 | 10.0 | A1, B3 duvarının sol ucu ve referans sensör. |
+| 2 | 49.0 | 1.0 | Sağ alt köşe. |
+| 3 | 49.0 | 29.0 | Sağ üst köşe. |
+| 4 | 1.0 | 29.0 | Sol üst köşe. |
+| 5 | 25.0 | 29.0 | Üst orta. |
+| 6 | 49.0 | 15.0 | Sağ orta. |
+| 7 | 1.0 | 15.0 | Sol orta. |
+| 8 | 25.0 | 1.0 | Alt orta. |
+| 9 | 25.0 | 18.0 | Gate-2 / ana koridor yakınında kolon anchor. |
+| 10 | 45.0 | 10.0 | Drop-off yakın anchor. |
 
-### A1 Degismeden Once
+Ana simülasyon çıktısına göre sensör sayısı analizi:
 
-Klasor:
-
-```text
-outputs/analysis_4_sensor_a1_before
-```
-
-Icerik:
-
-| Dosya | Aciklama |
-|---|---|
-| `G1_corner_coverage_map_and_error.png` | Eski A1 ile G1 harita + hata grafigi |
-| `G2_task_oriented_map_and_error.png` | Eski A1 ile G2 harita + hata grafigi |
-| `G3_poor_same_wall_map_and_error.png` | Eski A1 ile G3 harita + hata grafigi |
-| `summary_rmse_by_geometry.png` | Eski A1 icin 3 geometrinin ozet RMSE grafigi |
-| `summary.csv` | Eski A1 icin sayisal metrikler |
-
-### A1 B3 Sol Ucuna Alindiktan Sonra
-
-Klasor:
-
-```text
-outputs/analysis_4_sensor_a1_after
-```
-
-Icerik:
-
-| Dosya | Aciklama |
-|---|---|
-| `G1_corner_coverage_map_and_error.png` | Yeni A1 ile G1 harita + hata grafigi |
-| `G2_task_oriented_map_and_error.png` | Yeni A1 ile G2 harita + hata grafigi |
-| `G3_poor_same_wall_map_and_error.png` | Yeni A1 ile G3 harita + hata grafigi |
-| `summary_rmse_by_geometry.png` | Yeni A1 icin 3 geometrinin ozet RMSE grafigi |
-| `summary.csv` | Yeni A1 icin sayisal metrikler |
-
-### A1 Once / Sonra Ortak Ozet
-
-Dosya:
-
-```text
-outputs/analysis_4_sensor_a1_before_after_summary.png
-```
-
-Bu grafik, 4 sensorlu G1/G2/G3 geometrilerinde A1 revizyonu oncesi ve sonrasini yan yana karsilastirir.
-
-### 4'ten 10'a Sensor Sayisi Analizi
-
-Klasor:
-
-```text
-outputs/analysis_sensor_count_4_to_10
-```
-
-Icerik:
-
-| Dosya | Aciklama |
-|---|---|
-| `sensor_count_04_map_and_error.png` | 4 sensorlu harita + hata grafigi |
-| `sensor_count_05_map_and_error.png` | 5 sensorlu harita + hata grafigi |
-| `sensor_count_06_map_and_error.png` | 6 sensorlu harita + hata grafigi |
-| `sensor_count_07_map_and_error.png` | 7 sensorlu harita + hata grafigi |
-| `sensor_count_08_map_and_error.png` | 8 sensorlu harita + hata grafigi |
-| `sensor_count_09_map_and_error.png` | 9 sensorlu harita + hata grafigi |
-| `sensor_count_10_map_and_error.png` | 10 sensorlu harita + hata grafigi |
-| `summary_sensor_count_effect.png` | Sensor sayisi arttikca RMSE, kosul sayisi ve NLOS degisimi |
-| `summary.csv` | 4-10 sensor icin sayisal metrikler |
-
-Not: Bu detayli grafik betigi, ana simülasyon betiginden bagimsiz sabit rastgele tohumlar kullanarak yeniden Monte Carlo hesaplar. Bu nedenle README'deki genel ozet tablo ile bu klasorlerdeki `summary.csv` degerleri arasinda kucuk sayisal farklar olabilir. Analiz yaparken ayni tablo/grafik ailesi icindeki degerler kendi arasinda karsilastirilmalidir.
-
-## Sensor Sayisi Analizi
-
-Sensor sayisi 4'ten baslatilip 10'a kadar arttirildi. Maksimum sensor sayisi bu asama icin `10` secildi.
-
-Bu secimin gerekcesi:
-
-- 50x30 m gibi orta boy bir fabrika plani icin 4 anchor TDOA'nin teorik minimum pratik baslangicidir.
-- 6-8 anchor genellikle kapsama ve dayaniklilik icin yeterli iyilesme saglar.
-- 10 anchor sonrasi ek maliyet artar, fakat bu harita olceginde beklenen ek kazanc azalir.
-- Daha fazla anchor, NLOS anchor sayisini da artirabilecegi icin performans her zaman monoton iyilesmek zorunda degildir.
-
-Kullanilan 10 sensorluk maksimum havuz:
-
-| Sira | x [m] | y [m] | Aciklama |
-|---|---:|---:|---|
-| 1 | 0.0 | 10.0 | B3 duvarinin sol ucu, referans A1 |
-| 2 | 49.0 | 1.0 | Sag alt kose |
-| 3 | 49.0 | 29.0 | Sag ust kose |
-| 4 | 1.0 | 29.0 | Sol ust kose |
-| 5 | 25.0 | 29.0 | Ust orta |
-| 6 | 49.0 | 15.0 | Sag orta |
-| 7 | 1.0 | 15.0 | Sol orta |
-| 8 | 25.0 | 1.0 | Alt orta |
-| 9 | 25.0 | 18.0 | Gate-2 / main aisle yakininda kolon anchor |
-| 10 | 45.0 | 10.0 | Drop-off yakin anchor |
-
-Son calistirma sonucu:
-
-| Sensor sayisi | Ortalama RMSE [m] |
+| Sensör sayısı | Ortalama RMSE [m] |
 |---:|---:|
 | 4 | 0.843 |
 | 5 | 0.796 |
@@ -449,45 +374,67 @@ Son calistirma sonucu:
 | 9 | 0.759 |
 | 10 | 0.744 |
 
-Yorum: En iyi ortalama sonuc bu calistirmada 8 sensor civarinda goruldu. Daha fazla sensor eklemek her zaman monoton iyilesme saglamaz; cunku yeni eklenen anchorlarin belirli rota bolumlerinde NLOS olcumu uretmesi ve TDOA referans yapisinin dogrusal olmayan etkileri performansi etkiler. Bu bulgu raporda "sensor sayisi artisi geometri ve NLOS kosullariyla birlikte degerlendirilmelidir" seklinde yorumlanabilir.
+Bu sonuçlara göre en iyi ortalama RMSE değeri 8 sensörde elde edilmiştir. Ancak performans sensör sayısıyla monoton olarak iyileşmemektedir. Bunun temel nedeni, eklenen her sensörün geometriyi her zaman iyileştirmemesi ve bazı sensörlerin NLOS ölçüm üretme olasılığını artırmasıdır.
 
-## Revizyon Icin Kodda Bakilacak Yerler
+## Ana Çıktılar
 
-Temel ortam parametreleri `Config` sinifindadir:
+| Çıktı | Açıklama |
+|---|---|
+| `outputs/factory_geometry_only.png` | Sensör ve takip sonucu olmadan yalnızca fabrika geometrisini gösterir. |
+| `outputs/battery_robot_tracking_map.png` | Robotun gerçek yolu, EKF tahmini, sensörler ve NLOS anlarını gösterir. |
+| `outputs/tracking_time_series.png` | x/y konumları ve zamana bağlı konum hatasını gösterir. |
+| `outputs/geometry_and_sensor_count_analysis.png` | 4 sensör geometrileri ve 4-10 sensör sayısı analizini özetler. |
+| `outputs/tracking_results.csv` | Zaman, gerçek konum, tahmin konumu, hata ve NLOS sensör sayısını içerir. |
+| `outputs/main_metrics.csv` | Ana senaryonun RMSE, ortalama hata ve maksimum hata metriklerini içerir. |
+| `outputs/four_sensor_geometry_analysis.csv` | 4 sensörlü G1/G2/G3 geometrilerinin sayısal sonuçlarını içerir. |
+| `outputs/sensor_count_analysis.csv` | 4-10 sensör analizinin sayısal sonuçlarını içerir. |
 
-- `factory_size`: fabrika boyutu
-- `dt`: zaman adimi
-- `nominal_speed`: robot hizi
-- `pickup_wait_time`: pickup noktasindaki batarya yukleme bekleme suresi
-- `robot_radius`, `safety_margin`: engel sisirme parametreleri
-- `sigma_toa_los`, `sigma_toa_nlos`: UWB olcum gurultuleri
-- `sigma_accel`: EKF surec gurultusu
-- `monte_carlo_runs`: analiz tekrar sayisi
+## Ayrıntılı Grafik Dosyaları
 
-Gorev noktasi rotasi:
+4 sensörlü geometri ana inceleme alanı olduğu için A1 revizyonu öncesi ve sonrası ayrı klasörlerde gösterilmiştir.
 
-- `MISSION_POINTS`
+| Klasör / Dosya | Açıklama |
+|---|---|
+| `outputs/analysis_4_sensor_a1_before/` | A1 eski konumdayken G1, G2 ve G3 için ayrı grafikler. |
+| `outputs/analysis_4_sensor_a1_after/` | A1 `(0,10)` konumundayken G1, G2 ve G3 için ayrı grafikler. |
+| `outputs/analysis_4_sensor_a1_before_after_summary.png` | A1 önce/sonra karşılaştırmasını tek grafikte gösterir. |
+| `outputs/analysis_sensor_count_4_to_10/` | 4'ten 10'a kadar her sensör sayısı için ayrı grafikler. |
 
-4 sensor geometrileri:
+Bu klasörlerdeki her `map_and_error.png` dosyası iki bilgiyi birlikte verir:
 
-- `SENSOR_GEOMETRIES_4`
+1. Sol tarafta sensörlerin haritadaki konumları, gerçek robot yolu ve EKF tahmini.
+2. Sağ tarafta zamanla değişen konum hatası.
 
-Sensor sayisi analizinde kullanilan maksimum havuz:
+Not: `generate_analysis_figures.py`, ana simülasyon betiğinden bağımsız sabit rastgele tohumlar kullanarak yeniden Monte Carlo hesabı yapar. Bu nedenle bu klasörlerdeki `summary.csv` değerleri ile ana README tablolarındaki değerler arasında küçük sayısal farklar olabilir. Karşılaştırma yapılırken aynı analiz ailesindeki grafik ve CSV dosyaları birlikte değerlendirilmelidir.
 
-- `SENSOR_POOL_MAX_10`
+## Kod Üzerinde Değişiklik Yapılacak Yerler
 
-Engel ve kapi modeli:
+| Değiştirilecek unsur | Kod içindeki yer |
+|---|---|
+| Fabrika boyutu | `Config.factory_size` |
+| Zaman adımı | `Config.dt` |
+| Robot hızı | `Config.nominal_speed` |
+| Pickup bekleme süresi | `Config.pickup_wait_time` |
+| Robot yarıçapı ve güvenlik payı | `Config.robot_radius`, `Config.safety_margin` |
+| LOS/NLOS gürültüsü | `Config.sigma_toa_los`, `Config.sigma_toa_nlos` |
+| EKF süreç gürültüsü | `Config.sigma_accel` |
+| Monte Carlo tekrar sayısı | `Config.monte_carlo_runs` |
+| Görev noktaları | `MISSION_POINTS` |
+| 4 sensör geometrileri | `SENSOR_GEOMETRIES_4` |
+| 4-10 sensör havuzu | `SENSOR_POOL_MAX_10` |
+| Duvar, kapı ve engel modeli | `inflated_obstacles(cfg)` |
 
-- `inflated_obstacles(cfg)`
+## Rapor İçin Önerilen Bölümler
 
-## Rapor Icin Onerilen Basliklar
-
-1. Problem tanimi: batarya yerlestirme gorevli fabrika robotu takibi
-2. Fabrika ortami: 50x30 m koordinat sistemi, bolgeler, kapilar ve engeller
-3. Robot hareket modeli: waypoint tabanli sabit hizli hareket
-4. UWB/TDOA olcum modeli ve LOS/NLOS gurultu modeli
-5. LSE ile baslangic durum tahmini
-6. EKF takip algoritmasi
-7. 4 sensorlu 3 geometri analizi
-8. 4-10 sensor sayisi analizi
-9. Sonuclar ve yorum: RMSE, NLOS etkisi, sensor geometrisinin onemi
+1. Problem tanımı ve motivasyon
+2. Fabrika ortamının geometrik modeli
+3. Robot görev ve hareket modeli
+4. UWB/TDOA ölçüm modeli
+5. LOS/NLOS gürültü modeli
+6. LSE ile başlangıç tahmini
+7. EKF takip algoritması
+8. 4 sensörlü geometri analizi
+9. A1 sensörü önce/sonra karşılaştırması
+10. 4-10 sensör sayısı analizi
+11. Sonuçların yorumlanması
+12. Gelecek geliştirme önerileri
