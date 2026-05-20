@@ -309,7 +309,27 @@ Son calistirma sonucu:
 | G2 task oriented | 1.387 | 0.286 | 21.713 |
 | G3 poor same wall | 2.829 | 2.038 | 42.051 |
 
-Yorum: G1 en dengeli sonuc verir. G3'un hatasi cok yuksektir cunku sensorler ayni hatta toplandiginda TDOA hiperbol kesismeleri kotu kosullanir. G2 rota yakinligi acisindan mantikli gorunse de NLOS etkisi ve kosullama nedeniyle G1 kadar basarili degildir.
+Yorum: A1'in B3 duvarinin sol ucuna alinmasindan sonra G1 hala en dusuk ortalama RMSE'ye sahiptir. G2 onceki yerlesime gore belirgin sekilde iyilesmistir. G3 ise artik onceki kadar kotu degildir; cunku A1'in `(0,10)` konumuna alinmasi, tamamen alt hatta yigilmis referans geometrisini kismen bozarak kosullamayi iyilestirmistir.
+
+## A1 Revizyonu Once / Sonra Karsilastirmasi
+
+A1 revizyonundan once referans anchor G1 ve sensor sayisi analizinde `(1,1)` konumundaydi. Revizyondan sonra A1, B3 duvarinin en sol noktasi olan `(0,10)` konumuna tasindi.
+
+Iki farkli sonuc tipi vardir:
+
+- Ana takip RMSE: tek bir sabit rastgele tohumla calisan ana senaryo sonucudur.
+- Ortalama RMSE: Monte Carlo tekrarlarinin ortalamasidir; geometri karsilastirmasi icin daha guvenilir yorum budur.
+
+| Metrik | A1 once `(1,1)` | A1 sonra `(0,10)` | Yorum |
+|---|---:|---:|---|
+| Ana takip RMSE | 0.692 | 0.675 | Tekil ana kosuda biraz iyilesti |
+| G1 4-sensor ortalama RMSE | 0.814 | 0.832 | Monte Carlo ortalamasinda biraz kotulesti |
+| G2 4-sensor ortalama RMSE | 1.860 | 1.387 | Belirgin iyilesti |
+| G3 4-sensor ortalama RMSE | 14.607 | 2.829 | Cok ciddi iyilesti |
+| 8 sensor ortalama RMSE | 0.737 | 0.743 | Neredeyse ayni, cok az kotulesti |
+| 10 sensor ortalama RMSE | 0.744 | 0.744 | Pratikte ayni kaldi |
+
+Sonuc: "A1'i B3 sol ucuna almak her durumda daha iyi" demek dogru olmaz. Ana tekil takip senaryosunda iyilesme var, G2 ve G3 geometrilerinde belirgin iyilesme var; fakat G1 corner coverage ve 8 sensor ortalamasi cok az kotulesiyor. Rapor icin en dogru yorum: A1'in B3 sol ucuna alinmasi bazi kotu geometrileri stabilize ediyor, fakat dengeli kose geometrisinde kucuk bir bedel olusturuyor.
 
 ## Sensor Sayisi Analizi
 
