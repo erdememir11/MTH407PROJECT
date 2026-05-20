@@ -1,9 +1,14 @@
 """
 MTH407 Donem Projesi
-Akilli Fabrikalarda Otonom Robot (AGV) Takibi
+Fabrika ortaminda batarya yerlestirme robotu takibi
 
-2B fabrika ortaminda UWB anchor antenleri ile TDOA olcumu uretilir.
-Ilk konum LSE (Gauss-Newton) ile bulunur, sonraki takip EKF ile yapilir.
+Model:
+- 50 m x 30 m fabrika alani
+- Waypoint tabanli batarya tasima / drop-off gorevi
+- UWB anchor antenleri ile TDOA olcumu
+- LSE ilklendirme + EKF takip
+- 4 sensor icin 3 farkli geometri analizi
+- 4-10 sensor sayisi icin performans analizi
 
 Calistirma:
     python agv_tdoa_ekf.py
@@ -14,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import csv
+import math
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,84 +30,171 @@ from matplotlib.patches import Rectangle
 class Config:
     output_folder: Path = Path("outputs")
     c: float = 299_792_458.0
-    dt: float = 0.2
-    n_steps: int = 260
-    factory_size: tuple[float, float] = (42.0, 26.0)
-    sigma_accel: float = 0.45
+    dt: float = 0.5
+    nominal_speed: float = 1.0
+    waypoint_tolerance: float = 0.30
+    max_steps: int = 150
+    factory_size: tuple[float, float] = (50.0, 30.0)
+    robot_radius: float = 0.35
+    safety_margin: float = 0.25
+    wall_thickness: float = 0.20
+    sigma_accel: float = 0.35
     reference_sensor: int = 0
-    lse_iterations: int = 20
-    geometry_monte_carlo_runs: int = 30
+    lse_iterations: int = 25
+    monte_carlo_runs: int = 40
+
+    @property
+    def d_safe(self) -> float:
+        return self.robot_radius + self.safety_margin
 
     @property
     def sigma_toa_los(self) -> float:
-        return 0.20 / self.c
+        return 0.25 / self.c
 
     @property
     def sigma_toa_nlos(self) -> float:
-        return 1.20 / self.c
+        return 1.50 / self.c
 
 
-SENSORS_GOOD = np.array(
+WAYPOINTS = np.array(
     [
-        [1.5, 1.5],
-        [40.0, 1.2],
-        [41.0, 24.5],
-        [1.2, 24.0],
-        [20.5, 3.2],
-        [31.5, 17.5],
-    ],
-    dtype=float,
-)
-
-SENSORS_POOR = np.array(
-    [
-        [2.0, 1.0],
-        [9.0, 1.2],
-        [16.0, 0.9],
-        [23.0, 1.1],
-        [30.0, 0.8],
-        [38.0, 1.0],
-    ],
-    dtype=float,
-)
-
-OBSTACLES = np.array(
-    [
-        [8.0, 6.0, 5.5, 4.0],
-        [18.0, 10.0, 7.0, 3.5],
-        [29.0, 5.0, 4.0, 8.0],
-        [12.0, 18.0, 10.0, 3.0],
+        [5.0, 25.0],
+        [5.0, 21.0],
+        [5.0, 19.0],
+        [12.0, 18.0],
+        [24.0, 18.0],
+        [28.0, 18.0],
+        [40.0, 18.0],
+        [45.0, 10.0],
     ],
     dtype=float,
 )
 
 
-def simulate_agv_trajectory(cfg: Config) -> tuple[np.ndarray, np.ndarray]:
-    t = np.arange(cfg.n_steps) * cfg.dt
-    state = np.zeros((cfg.n_steps, 4), dtype=float)
-    state[0] = [4.0, 4.0, 1.05, 0.55]
+SENSOR_GEOMETRIES_4 = {
+    "G1_corner_coverage": np.array(
+        [
+            [1.0, 1.0],
+            [49.0, 1.0],
+            [49.0, 29.0],
+            [1.0, 29.0],
+        ],
+        dtype=float,
+    ),
+    "G2_task_oriented": np.array(
+        [
+            [3.0, 27.5],
+            [24.0, 27.5],
+            [28.0, 15.5],
+            [48.0, 11.0],
+        ],
+        dtype=float,
+    ),
+    "G3_poor_same_wall": np.array(
+        [
+            [2.0, 2.0],
+            [17.0, 2.0],
+            [33.0, 2.0],
+            [48.0, 2.0],
+        ],
+        dtype=float,
+    ),
+}
 
-    for k in range(1, cfg.n_steps):
-        tk = t[k]
-        ax = 0.22 * np.sin(0.23 * tk) - 0.08 * np.sin(0.71 * tk)
-        ay = 0.18 * np.cos(0.19 * tk) + 0.06 * np.sin(0.53 * tk)
 
-        state[k, 2:4] = state[k - 1, 2:4] + cfg.dt * np.array([ax, ay])
-        speed = np.linalg.norm(state[k, 2:4])
-        if speed > 1.8:
-            state[k, 2:4] *= 1.8 / speed
+SENSOR_POOL_MAX_10 = np.array(
+    [
+        [1.0, 1.0],
+        [49.0, 1.0],
+        [49.0, 29.0],
+        [1.0, 29.0],
+        [25.0, 29.0],
+        [49.0, 15.0],
+        [1.0, 15.0],
+        [25.0, 1.0],
+        [25.0, 18.0],
+        [45.0, 10.0],
+    ],
+    dtype=float,
+)
 
-        state[k, 0:2] = state[k - 1, 0:2] + cfg.dt * state[k, 2:4]
 
-        margin = 1.0
-        if state[k, 0] < margin or state[k, 0] > cfg.factory_size[0] - margin:
-            state[k, 2] *= -0.85
-            state[k, 0] = np.clip(state[k, 0], margin, cfg.factory_size[0] - margin)
-        if state[k, 1] < margin or state[k, 1] > cfg.factory_size[1] - margin:
-            state[k, 3] *= -0.85
-            state[k, 1] = np.clip(state[k, 1], margin, cfg.factory_size[1] - margin)
+def inflated_obstacles(cfg: Config) -> list[tuple[float, float, float, float]]:
+    """Return inflated forbidden rectangles as (xmin, ymin, xmax, ymax)."""
+    half = cfg.wall_thickness / 2.0 + cfg.d_safe
+    obs: list[tuple[float, float, float, float]] = []
 
+    # B1: y=20, 0<=x<=25 with Gate-1 around x=5.
+    obs.append((0.0, 20.0 - half, 4.0, 20.0 + half))
+    obs.append((6.0, 20.0 - half, 25.0, 20.0 + half))
+
+    # B2: x=25, 12<=y<=30 with Gate-2 y in [16.6, 19.0].
+    obs.append((25.0 - half, 12.0, 25.0 + half, 16.6))
+    obs.append((25.0 - half, 19.0, 25.0 + half, 30.0))
+
+    # B3: y=10, 0<=x<=40. Drop-off approach remains open for x>40.
+    obs.append((0.0, 10.0 - half, 40.0, 10.0 + half))
+
+    # B4: x=40, 0<=y<=10.
+    obs.append((40.0 - half, 0.0, 40.0 + half, 10.0))
+
+    return obs
+
+
+def simulate_robot_motion(cfg: Config) -> tuple[np.ndarray, np.ndarray]:
+    state = np.zeros((cfg.max_steps, 4), dtype=float)
+    state[0, 0:2] = WAYPOINTS[0]
+    waypoint_idx = 1
+
+    obs = inflated_obstacles(cfg)
+    finished = False
+
+    for k in range(1, cfg.max_steps):
+        p = state[k - 1, 0:2].copy()
+
+        if finished:
+            state[k] = [p[0], p[1], 0.0, 0.0]
+            continue
+
+        target = WAYPOINTS[waypoint_idx]
+        delta = target - p
+        distance = np.linalg.norm(delta)
+
+        if distance < cfg.waypoint_tolerance and waypoint_idx < len(WAYPOINTS) - 1:
+            waypoint_idx += 1
+            target = WAYPOINTS[waypoint_idx]
+            delta = target - p
+            distance = np.linalg.norm(delta)
+
+        if distance <= cfg.nominal_speed * cfg.dt:
+            p_new = target.copy()
+            velocity = (p_new - p) / cfg.dt
+            if waypoint_idx == len(WAYPOINTS) - 1:
+                finished = True
+        else:
+            direction = delta / max(distance, 1e-12)
+            velocity = cfg.nominal_speed * direction
+            p_new = p + velocity * cfg.dt
+
+        if not inside_map(p_new, cfg) or collision_point(p_new, obs):
+            raise RuntimeError(
+                f"Waypoint route collision at step {k}: candidate={p_new}. "
+                "Check gates, obstacles, or waypoint definitions."
+            )
+
+        state[k, 0:2] = p_new
+        state[k, 2:4] = velocity
+
+    t = np.arange(cfg.max_steps) * cfg.dt
     return t, state
+
+
+def inside_map(p: np.ndarray, cfg: Config) -> bool:
+    return 0.0 <= p[0] <= cfg.factory_size[0] and 0.0 <= p[1] <= cfg.factory_size[1]
+
+
+def collision_point(p: np.ndarray, obstacles: list[tuple[float, float, float, float]]) -> bool:
+    return any(xmin <= p[0] <= xmax and ymin <= p[1] <= ymax for xmin, ymin, xmax, ymax in obstacles)
 
 
 def generate_tdoa_measurements(
@@ -114,6 +207,7 @@ def generate_tdoa_measurements(
     ref = cfg.reference_sensor
     other = [i for i in range(m) if i != ref]
     k_count = positions.shape[0]
+    obstacles = inflated_obstacles(cfg)
 
     z_range_diff = np.zeros((k_count, m - 1), dtype=float)
     z_time_diff = np.zeros((k_count, m - 1), dtype=float)
@@ -125,7 +219,7 @@ def generate_tdoa_measurements(
         sigma_toa = np.full(m, cfg.sigma_toa_los)
 
         for i, anchor in enumerate(sensors):
-            if line_intersects_any_obstacle(p, anchor, OBSTACLES):
+            if line_intersects_any_obstacle(p, anchor, obstacles):
                 sigma_toa[i] = cfg.sigma_toa_nlos
                 is_nlos[k, i] = True
 
@@ -137,12 +231,7 @@ def generate_tdoa_measurements(
         range_var = cfg.c**2 * (sigma_toa[other] ** 2 + sigma_toa[ref] ** 2)
         r_mats[k] = np.diag(range_var)
 
-    return {
-        "z_range_diff": z_range_diff,
-        "z_time_diff": z_time_diff,
-        "r": r_mats,
-        "is_nlos": is_nlos,
-    }
+    return {"z_range_diff": z_range_diff, "z_time_diff": z_time_diff, "r": r_mats, "is_nlos": is_nlos}
 
 
 def initialize_with_lse(
@@ -168,9 +257,8 @@ def initialize_with_lse(
 
     x0 = np.array([p_hat[0, 0], p_hat[0, 1], vx, vy], dtype=float)
     p0 = np.zeros((4, 4), dtype=float)
-    p0[:2, :2] = p_cov[0] + 0.25 * np.eye(2)
+    p0[:2, :2] = p_cov[0] + 0.50 * np.eye(2)
     p0[2:, 2:] = np.diag([0.8**2, 0.8**2])
-
     return {"x0": x0, "p0": p0, "lse_positions": p_hat}
 
 
@@ -215,21 +303,9 @@ def run_ekf_tracker(
 
     dt = cfg.dt
     f = np.array(
-        [
-            [1.0, 0.0, dt, 0.0],
-            [0.0, 1.0, 0.0, dt],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
+        [[1.0, 0.0, dt, 0.0], [0.0, 1.0, 0.0, dt], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
     )
-    g = np.array(
-        [
-            [0.5 * dt**2, 0.0],
-            [0.0, 0.5 * dt**2],
-            [dt, 0.0],
-            [0.0, dt],
-        ]
-    )
+    g = np.array([[0.5 * dt**2, 0.0], [0.0, 0.5 * dt**2], [dt, 0.0], [0.0, dt]])
     q = cfg.sigma_accel**2 * (g @ g.T)
     identity = np.eye(4)
 
@@ -253,7 +329,7 @@ def run_ekf_tracker(
 
         state[k] = x_upd
         cov[k] = p_upd
-        innovation_norm[k] = float(np.sqrt(y.T @ np.linalg.inv(s_mat) @ y))
+        innovation_norm[k] = math.sqrt(float(y.T @ np.linalg.inv(s_mat) @ y))
 
     return {"state": state, "position": state[:, :2], "p": cov, "innovation_norm": innovation_norm}
 
@@ -274,37 +350,7 @@ def tdoa_measurement_model(
     h_pos = np.zeros((m - 1, 2), dtype=float)
     for row, i in enumerate(other):
         h_pos[row] = diff[i] / distances[i] - diff[reference_sensor] / distances[reference_sensor]
-
     return h, h_pos
-
-
-def line_intersects_any_obstacle(p1: np.ndarray, p2: np.ndarray, obstacles: np.ndarray) -> bool:
-    return any(segment_intersects_rect(p1, p2, rect) for rect in obstacles)
-
-
-def segment_intersects_rect(p1: np.ndarray, p2: np.ndarray, rect: np.ndarray) -> bool:
-    x, y, w, h = rect
-    xmin, xmax = x, x + w
-    ymin, ymax = y, y + h
-
-    if point_in_rect(p1, rect) or point_in_rect(p2, rect):
-        return True
-
-    corners = np.array([[xmin, ymin], [xmax, ymin], [xmax, ymax], [xmin, ymax]])
-    edges = [(0, 1), (1, 2), (2, 3), (3, 0)]
-    return any(segments_intersect(p1, p2, corners[a], corners[b]) for a, b in edges)
-
-
-def point_in_rect(p: np.ndarray, rect: np.ndarray) -> bool:
-    return bool(rect[0] <= p[0] <= rect[0] + rect[2] and rect[1] <= p[1] <= rect[1] + rect[3])
-
-
-def segments_intersect(a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray) -> bool:
-    return ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
-
-
-def ccw(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> bool:
-    return bool((c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0]))
 
 
 def compute_metrics(true_positions: np.ndarray, estimated_positions: np.ndarray) -> dict[str, float]:
@@ -316,217 +362,293 @@ def compute_metrics(true_positions: np.ndarray, estimated_positions: np.ndarray)
     }
 
 
-def analyze_sensor_geometry(
+def evaluate_layout(
     cfg: Config,
     true_positions: np.ndarray,
+    sensors: np.ndarray,
     rng: np.random.Generator,
-) -> dict[str, np.ndarray]:
-    names = np.array(["Iyi geometri", "Zayif geometri"], dtype=object)
-    sensor_sets = [SENSORS_GOOD, SENSORS_POOR]
-    rmse = np.zeros((2, cfg.geometry_monte_carlo_runs), dtype=float)
-    mean_condition = np.zeros(2, dtype=float)
+) -> dict[str, object]:
+    measurements = generate_tdoa_measurements(true_positions, cfg, sensors, rng)
+    init = initialize_with_lse(measurements, cfg, sensors)
+    ekf = run_ekf_tracker(measurements, init, cfg, sensors)
+    metrics = compute_metrics(true_positions, ekf["position"])
+    metrics["mean_nlos_anchor_count"] = float(measurements["is_nlos"].sum(axis=1).mean())
+    metrics["mean_condition_number"] = mean_condition_number(true_positions, sensors, cfg)
+    return {"measurements": measurements, "init": init, "ekf": ekf, "metrics": metrics}
 
-    for s_idx, sensors in enumerate(sensor_sets):
-        cond_series = []
-        for p in true_positions:
-            _, h_pos = tdoa_measurement_model(p, sensors, cfg.reference_sensor)
-            cond_series.append(np.linalg.cond(h_pos.T @ h_pos + 1e-9 * np.eye(2)))
-        mean_condition[s_idx] = float(np.mean(cond_series))
 
-        for run in range(cfg.geometry_monte_carlo_runs):
-            meas = generate_tdoa_measurements(true_positions, cfg, sensors, rng)
-            init = initialize_with_lse(meas, cfg, sensors)
-            ekf = run_ekf_tracker(meas, init, cfg, sensors)
-            metrics = compute_metrics(true_positions, ekf["position"])
-            rmse[s_idx, run] = metrics["rmse_position_m"]
+def monte_carlo_layout(
+    cfg: Config,
+    true_positions: np.ndarray,
+    sensors: np.ndarray,
+    base_seed: int,
+) -> dict[str, float]:
+    rmse = np.zeros(cfg.monte_carlo_runs, dtype=float)
+    mean_err = np.zeros(cfg.monte_carlo_runs, dtype=float)
+    max_err = np.zeros(cfg.monte_carlo_runs, dtype=float)
+
+    for run in range(cfg.monte_carlo_runs):
+        rng = np.random.default_rng(base_seed + run)
+        result = evaluate_layout(cfg, true_positions, sensors, rng)
+        rmse[run] = result["metrics"]["rmse_position_m"]
+        mean_err[run] = result["metrics"]["mean_position_error_m"]
+        max_err[run] = result["metrics"]["max_position_error_m"]
 
     return {
-        "names": names,
-        "mean_rmse": rmse.mean(axis=1),
-        "std_rmse": rmse.std(axis=1, ddof=1),
-        "mean_condition": mean_condition,
+        "mean_rmse_m": float(rmse.mean()),
+        "std_rmse_m": float(rmse.std(ddof=1)),
+        "mean_error_m": float(mean_err.mean()),
+        "max_error_m": float(max_err.mean()),
+        "mean_condition_number": mean_condition_number(true_positions, sensors, cfg),
     }
 
 
-def save_outputs(
+def analyze_four_sensor_geometries(cfg: Config, true_positions: np.ndarray) -> list[dict[str, float | str]]:
+    rows: list[dict[str, float | str]] = []
+    for idx, (name, sensors) in enumerate(SENSOR_GEOMETRIES_4.items()):
+        metrics = monte_carlo_layout(cfg, true_positions, sensors, base_seed=5000 + 100 * idx)
+        rows.append({"geometry": name, "sensor_count": 4, **metrics})
+    return rows
+
+
+def analyze_sensor_count(cfg: Config, true_positions: np.ndarray) -> list[dict[str, float | int]]:
+    rows: list[dict[str, float | int]] = []
+    for count in range(4, len(SENSOR_POOL_MAX_10) + 1):
+        sensors = SENSOR_POOL_MAX_10[:count]
+        metrics = monte_carlo_layout(cfg, true_positions, sensors, base_seed=8000 + 100 * count)
+        rows.append({"sensor_count": count, **metrics})
+    return rows
+
+
+def mean_condition_number(true_positions: np.ndarray, sensors: np.ndarray, cfg: Config) -> float:
+    values = []
+    for p in true_positions:
+        _, h_pos = tdoa_measurement_model(p, sensors, cfg.reference_sensor)
+        values.append(np.linalg.cond(h_pos.T @ h_pos + 1e-9 * np.eye(2)))
+    return float(np.mean(values))
+
+
+def line_intersects_any_obstacle(
+    p1: np.ndarray,
+    p2: np.ndarray,
+    obstacles: list[tuple[float, float, float, float]],
+) -> bool:
+    return any(segment_intersects_rect(p1, p2, rect) for rect in obstacles)
+
+
+def segment_intersects_rect(p1: np.ndarray, p2: np.ndarray, rect: tuple[float, float, float, float]) -> bool:
+    xmin, ymin, xmax, ymax = rect
+    if xmin <= p1[0] <= xmax and ymin <= p1[1] <= ymax:
+        return True
+    if xmin <= p2[0] <= xmax and ymin <= p2[1] <= ymax:
+        return True
+
+    corners = np.array([[xmin, ymin], [xmax, ymin], [xmax, ymax], [xmin, ymax]])
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0)]
+    return any(segments_intersect(p1, p2, corners[a], corners[b]) for a, b in edges)
+
+
+def segments_intersect(a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray) -> bool:
+    return ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
+
+
+def ccw(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> bool:
+    return bool((c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0]))
+
+
+def save_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    if not rows:
+        return
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def save_tracking_outputs(
     cfg: Config,
     t: np.ndarray,
     true_positions: np.ndarray,
-    measurements: dict[str, np.ndarray],
-    ekf: dict[str, np.ndarray],
-    metrics: dict[str, float],
-    geometry: dict[str, np.ndarray],
+    main_result: dict[str, object],
+    geometry_rows: list[dict[str, object]],
+    count_rows: list[dict[str, object]],
 ) -> None:
     cfg.output_folder.mkdir(exist_ok=True)
+    ekf = main_result["ekf"]
+    measurements = main_result["measurements"]
+    assert isinstance(ekf, dict)
+    assert isinstance(measurements, dict)
 
-    tracking_path = cfg.output_folder / "tracking_results.csv"
     errors = np.linalg.norm(ekf["position"] - true_positions, axis=1)
-    with tracking_path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(
-            [
-                "time_s",
-                "true_x_m",
-                "true_y_m",
-                "estimated_x_m",
-                "estimated_y_m",
-                "position_error_m",
-                "nlos_anchor_count",
-            ]
+    rows = []
+    for k in range(len(t)):
+        rows.append(
+            {
+                "time_s": f"{t[k]:.6f}",
+                "true_x_m": f"{true_positions[k, 0]:.6f}",
+                "true_y_m": f"{true_positions[k, 1]:.6f}",
+                "estimated_x_m": f"{ekf['position'][k, 0]:.6f}",
+                "estimated_y_m": f"{ekf['position'][k, 1]:.6f}",
+                "position_error_m": f"{errors[k]:.6f}",
+                "nlos_anchor_count": int(measurements["is_nlos"][k].sum()),
+            }
         )
-        for k in range(len(t)):
-            writer.writerow(
-                [
-                    f"{t[k]:.6f}",
-                    f"{true_positions[k, 0]:.6f}",
-                    f"{true_positions[k, 1]:.6f}",
-                    f"{ekf['position'][k, 0]:.6f}",
-                    f"{ekf['position'][k, 1]:.6f}",
-                    f"{errors[k]:.6f}",
-                    int(measurements["is_nlos"][k].sum()),
-                ]
-            )
+    save_csv(cfg.output_folder / "tracking_results.csv", rows)
 
-    with (cfg.output_folder / "main_metrics.csv").open("w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(metrics.keys())
-        writer.writerow([f"{value:.6f}" for value in metrics.values()])
-
-    with (cfg.output_folder / "geometry_analysis.csv").open("w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(["geometry", "mean_rmse_m", "std_rmse_m", "mean_condition_number"])
-        for i, name in enumerate(geometry["names"]):
-            writer.writerow(
-                [
-                    name,
-                    f"{geometry['mean_rmse'][i]:.6f}",
-                    f"{geometry['std_rmse'][i]:.6f}",
-                    f"{geometry['mean_condition'][i]:.6f}",
-                ]
-            )
+    metrics = main_result["metrics"]
+    assert isinstance(metrics, dict)
+    save_csv(cfg.output_folder / "main_metrics.csv", [{k: f"{v:.6f}" for k, v in metrics.items()}])
+    save_csv(cfg.output_folder / "four_sensor_geometry_analysis.csv", geometry_rows)
+    save_csv(cfg.output_folder / "sensor_count_analysis.csv", count_rows)
 
 
-def plot_factory_tracking(
+def plot_environment(
     cfg: Config,
+    t: np.ndarray,
     true_positions: np.ndarray,
-    measurements: dict[str, np.ndarray],
-    ekf: dict[str, np.ndarray],
+    main_result: dict[str, object],
+    sensors: np.ndarray,
 ) -> None:
-    fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+    ekf = main_result["ekf"]
+    measurements = main_result["measurements"]
+    assert isinstance(ekf, dict)
+    assert isinstance(measurements, dict)
+
+    fig, ax = plt.subplots(figsize=(11, 7), dpi=150)
     ax.set_aspect("equal", adjustable="box")
     ax.set_xlim(0, cfg.factory_size[0])
     ax.set_ylim(0, cfg.factory_size[1])
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=0.25)
 
-    for rect in OBSTACLES:
+    # Semantic zones.
+    zones = [
+        ((0, 20), 25, 10, "#dbeafe", "Warehouse zone"),
+        ((0, 10), 25, 10, "#fde68a", "Charging docks"),
+        ((25, 10), 25, 20, "#dcfce7", "Main transit aisle"),
+    ]
+    for xy, width, height, color, label in zones:
+        ax.add_patch(Rectangle(xy, width, height, facecolor=color, edgecolor="none", alpha=0.45, label=label))
+
+    for rect in inflated_obstacles(cfg):
+        xmin, ymin, xmax, ymax = rect
         ax.add_patch(
             Rectangle(
-                (rect[0], rect[1]),
-                rect[2],
-                rect[3],
-                facecolor="#b8b8b8",
-                edgecolor="#3f3f3f",
-                linewidth=1.2,
-                label="Engel" if "Engel" not in ax.get_legend_handles_labels()[1] else None,
+                (xmin, ymin),
+                xmax - xmin,
+                ymax - ymin,
+                facecolor="#ef4444",
+                edgecolor="#7f1d1d",
+                alpha=0.35,
+                linewidth=1.0,
             )
         )
-
-    ax.scatter(SENSORS_GOOD[:, 0], SENSORS_GOOD[:, 1], s=55, color="#0b4da2", label="UWB anchor")
-    for idx, sensor in enumerate(SENSORS_GOOD, start=1):
-        ax.text(sensor[0] + 0.35, sensor[1] + 0.35, f"A{idx}", color="#062f66", fontsize=8)
 
     nlos_count = measurements["is_nlos"].sum(axis=1)
     ax.scatter(
         true_positions[nlos_count > 0, 0],
         true_positions[nlos_count > 0, 1],
         s=12,
-        color="#e36f10",
-        alpha=0.6,
-        label="NLOS olcum ani",
+        color="#f97316",
+        alpha=0.65,
+        label="NLOS measurement instant",
     )
-    ax.plot(true_positions[:, 0], true_positions[:, 1], "k-", linewidth=2.0, label="Gercek AGV yolu")
-    ax.plot(ekf["position"][:, 0], ekf["position"][:, 1], color="#c8102e", linewidth=1.7, label="EKF tahmini")
+    ax.plot(WAYPOINTS[:, 0], WAYPOINTS[:, 1], "o--", color="#92400e", linewidth=1.0, label="Waypoint route")
+    ax.plot(true_positions[:, 0], true_positions[:, 1], "k-", linewidth=2.0, label="True robot path")
+    ax.plot(ekf["position"][:, 0], ekf["position"][:, 1], color="#be123c", linewidth=1.7, label="EKF estimate")
 
+    ax.scatter(sensors[:, 0], sensors[:, 1], s=65, color="#1d4ed8", label="UWB anchors")
+    for idx, sensor in enumerate(sensors, start=1):
+        ax.text(sensor[0] + 0.35, sensor[1] + 0.35, f"A{idx}", color="#1e3a8a", fontsize=8)
+
+    ax.scatter(WAYPOINTS[0, 0], WAYPOINTS[0, 1], s=80, color="#2563eb", marker="o", label="Start")
+    ax.scatter(WAYPOINTS[-1, 0], WAYPOINTS[-1, 1], s=120, color="#dc2626", marker="*", label="Drop-off")
     ax.set_xlabel("x [m]")
     ax.set_ylabel("y [m]")
-    ax.set_title("2B fabrika zemini: TDOA tabanli AGV takibi")
-    ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5))
+    ax.set_title("Battery placement robot tracking with UWB/TDOA")
+    ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=8)
     fig.tight_layout()
-    fig.savefig(cfg.output_folder / "factory_tracking_map.png")
+    fig.savefig(cfg.output_folder / "battery_robot_tracking_map.png")
     plt.close(fig)
 
-
-def plot_time_series(cfg: Config, t: np.ndarray, true_positions: np.ndarray, ekf: dict[str, np.ndarray]) -> None:
-    error = np.linalg.norm(ekf["position"] - true_positions, axis=1)
     fig, axes = plt.subplots(3, 1, figsize=(10, 8), dpi=150, sharex=True)
-
-    axes[0].plot(t, true_positions[:, 0], "k-", linewidth=1.6, label="Gercek")
-    axes[0].plot(t, ekf["position"][:, 0], "r--", linewidth=1.4, label="Tahmin")
+    err = np.linalg.norm(ekf["position"] - true_positions, axis=1)
+    axes[0].plot(t, true_positions[:, 0], "k-", label="True")
+    axes[0].plot(t, ekf["position"][:, 0], "r--", label="Estimate")
     axes[0].set_ylabel("x [m]")
-    axes[0].legend(loc="best")
-
-    axes[1].plot(t, true_positions[:, 1], "k-", linewidth=1.6)
-    axes[1].plot(t, ekf["position"][:, 1], "r--", linewidth=1.4)
+    axes[0].legend()
+    axes[1].plot(t, true_positions[:, 1], "k-")
+    axes[1].plot(t, ekf["position"][:, 1], "r--")
     axes[1].set_ylabel("y [m]")
-
-    axes[2].plot(t, error, color="#1b7f64", linewidth=1.4)
-    axes[2].set_ylabel("konum hatasi [m]")
-    axes[2].set_xlabel("zaman [s]")
-    axes[2].set_title(f"RMSE = {np.sqrt(np.mean(error**2)):.2f} m")
-
-    for ax in axes:
-        ax.grid(True, alpha=0.3)
-
+    axes[2].plot(t, err, color="#047857")
+    axes[2].set_ylabel("Position error [m]")
+    axes[2].set_xlabel("time [s]")
+    axes[2].set_title(f"RMSE = {math.sqrt(float(np.mean(err**2))):.2f} m")
+    for axis in axes:
+        axis.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(cfg.output_folder / "tracking_time_series.png")
     plt.close(fig)
 
 
-def plot_geometry_analysis(cfg: Config, geometry: dict[str, np.ndarray]) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4), dpi=150)
-    x = np.arange(len(geometry["names"]))
+def plot_analysis(
+    cfg: Config,
+    geometry_rows: list[dict[str, object]],
+    count_rows: list[dict[str, object]],
+) -> None:
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), dpi=150)
 
-    axes[0].bar(x, geometry["mean_rmse"], yerr=geometry["std_rmse"], color="#2878b5", capsize=4)
-    axes[0].set_xticks(x, geometry["names"])
-    axes[0].set_ylabel("Ortalama RMSE [m]")
-    axes[0].set_title("Sensor geometrisi etkisi")
+    names = [str(row["geometry"]).replace("_", "\n") for row in geometry_rows]
+    rmse = np.array([float(row["mean_rmse_m"]) for row in geometry_rows])
+    std = np.array([float(row["std_rmse_m"]) for row in geometry_rows])
+    axes[0].bar(np.arange(len(names)), rmse, yerr=std, color=["#2563eb", "#059669", "#dc2626"], capsize=4)
+    axes[0].set_xticks(np.arange(len(names)), names)
+    axes[0].set_ylabel("Mean RMSE [m]")
+    axes[0].set_title("4-sensor geometry comparison")
     axes[0].grid(True, axis="y", alpha=0.3)
 
-    axes[1].semilogy(x, geometry["mean_condition"], "o-", color="#b43b3b", linewidth=1.6)
-    axes[1].set_xticks(x, geometry["names"])
-    axes[1].set_ylabel("Ortalama cond(H^T H)")
-    axes[1].set_title("TDOA geometri kosullanmasi")
+    counts = np.array([int(row["sensor_count"]) for row in count_rows])
+    count_rmse = np.array([float(row["mean_rmse_m"]) for row in count_rows])
+    count_std = np.array([float(row["std_rmse_m"]) for row in count_rows])
+    axes[1].errorbar(counts, count_rmse, yerr=count_std, marker="o", linewidth=1.7, capsize=4, color="#7c3aed")
+    axes[1].set_xticks(counts)
+    axes[1].set_xlabel("Sensor count")
+    axes[1].set_ylabel("Mean RMSE [m]")
+    axes[1].set_title("Sensor count analysis, 4 to 10 anchors")
     axes[1].grid(True, alpha=0.3)
 
     fig.tight_layout()
-    fig.savefig(cfg.output_folder / "sensor_geometry_analysis.png")
+    fig.savefig(cfg.output_folder / "geometry_and_sensor_count_analysis.png")
     plt.close(fig)
 
 
 def main() -> None:
     cfg = Config()
     cfg.output_folder.mkdir(exist_ok=True)
-    rng = np.random.default_rng(407)
 
-    t, truth_state = simulate_agv_trajectory(cfg)
+    t, truth_state = simulate_robot_motion(cfg)
     true_positions = truth_state[:, :2]
 
-    measurements = generate_tdoa_measurements(true_positions, cfg, SENSORS_GOOD, rng)
-    init = initialize_with_lse(measurements, cfg, SENSORS_GOOD)
-    ekf = run_ekf_tracker(measurements, init, cfg, SENSORS_GOOD)
+    main_sensors = SENSOR_GEOMETRIES_4["G1_corner_coverage"]
+    main_result = evaluate_layout(cfg, true_positions, main_sensors, np.random.default_rng(407))
+    geometry_rows = analyze_four_sensor_geometries(cfg, true_positions)
+    count_rows = analyze_sensor_count(cfg, true_positions)
 
-    metrics = compute_metrics(true_positions, ekf["position"])
-    geometry = analyze_sensor_geometry(cfg, true_positions, rng)
+    save_tracking_outputs(cfg, t, true_positions, main_result, geometry_rows, count_rows)
+    plot_environment(cfg, t, true_positions, main_result, main_sensors)
+    plot_analysis(cfg, geometry_rows, count_rows)
 
-    save_outputs(cfg, t, true_positions, measurements, ekf, metrics, geometry)
-    plot_factory_tracking(cfg, true_positions, measurements, ekf)
-    plot_time_series(cfg, t, true_positions, ekf)
-    plot_geometry_analysis(cfg, geometry)
-
-    print("AGV TDOA-EKF Python simulasyonu tamamlandi.")
-    print(f"Ana senaryo konum RMSE: {metrics['rmse_position_m']:.3f} m")
-    print(f"Ortalama NLOS anchor sayisi: {measurements['is_nlos'].sum(axis=1).mean():.2f} / {SENSORS_GOOD.shape[0]}")
-    print(f"Ciktilar: {cfg.output_folder.resolve()}")
+    metrics = main_result["metrics"]
+    assert isinstance(metrics, dict)
+    print("Battery placement robot UWB/TDOA-EKF simulation completed.")
+    print(f"Main layout RMSE: {metrics['rmse_position_m']:.3f} m")
+    print(f"Mean NLOS anchor count: {metrics['mean_nlos_anchor_count']:.2f} / {main_sensors.shape[0]}")
+    print("4-sensor geometry analysis:")
+    for row in geometry_rows:
+        print(f"  {row['geometry']}: RMSE={float(row['mean_rmse_m']):.3f} m")
+    print("Sensor count analysis:")
+    for row in count_rows:
+        print(f"  {row['sensor_count']} sensors: RMSE={float(row['mean_rmse_m']):.3f} m")
+    print(f"Outputs: {cfg.output_folder.resolve()}")
 
 
 if __name__ == "__main__":
