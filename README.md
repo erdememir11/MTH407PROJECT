@@ -331,6 +331,86 @@ Iki farkli sonuc tipi vardir:
 
 Sonuc: "A1'i B3 sol ucuna almak her durumda daha iyi" demek dogru olmaz. Ana tekil takip senaryosunda iyilesme var, G2 ve G3 geometrilerinde belirgin iyilesme var; fakat G1 corner coverage ve 8 sensor ortalamasi cok az kotulesiyor. Rapor icin en dogru yorum: A1'in B3 sol ucuna alinmasi bazi kotu geometrileri stabilize ediyor, fakat dengeli kose geometrisinde kucuk bir bedel olusturuyor.
 
+## Detayli Grafik Dosyalari
+
+4 sensorlu geometri ana inceleme alani oldugu icin A1 revizyonunun oncesi ve sonrasi ayri klasorlere ayrildi. Bu grafikler `generate_analysis_figures.py` ile uretilir.
+
+Calistirma:
+
+```powershell
+C:\ANACONDA\python.exe generate_analysis_figures.py
+```
+
+### A1 Degismeden Once
+
+Klasor:
+
+```text
+outputs/analysis_4_sensor_a1_before
+```
+
+Icerik:
+
+| Dosya | Aciklama |
+|---|---|
+| `G1_corner_coverage_map_and_error.png` | Eski A1 ile G1 harita + hata grafigi |
+| `G2_task_oriented_map_and_error.png` | Eski A1 ile G2 harita + hata grafigi |
+| `G3_poor_same_wall_map_and_error.png` | Eski A1 ile G3 harita + hata grafigi |
+| `summary_rmse_by_geometry.png` | Eski A1 icin 3 geometrinin ozet RMSE grafigi |
+| `summary.csv` | Eski A1 icin sayisal metrikler |
+
+### A1 B3 Sol Ucuna Alindiktan Sonra
+
+Klasor:
+
+```text
+outputs/analysis_4_sensor_a1_after
+```
+
+Icerik:
+
+| Dosya | Aciklama |
+|---|---|
+| `G1_corner_coverage_map_and_error.png` | Yeni A1 ile G1 harita + hata grafigi |
+| `G2_task_oriented_map_and_error.png` | Yeni A1 ile G2 harita + hata grafigi |
+| `G3_poor_same_wall_map_and_error.png` | Yeni A1 ile G3 harita + hata grafigi |
+| `summary_rmse_by_geometry.png` | Yeni A1 icin 3 geometrinin ozet RMSE grafigi |
+| `summary.csv` | Yeni A1 icin sayisal metrikler |
+
+### A1 Once / Sonra Ortak Ozet
+
+Dosya:
+
+```text
+outputs/analysis_4_sensor_a1_before_after_summary.png
+```
+
+Bu grafik, 4 sensorlu G1/G2/G3 geometrilerinde A1 revizyonu oncesi ve sonrasini yan yana karsilastirir.
+
+### 4'ten 10'a Sensor Sayisi Analizi
+
+Klasor:
+
+```text
+outputs/analysis_sensor_count_4_to_10
+```
+
+Icerik:
+
+| Dosya | Aciklama |
+|---|---|
+| `sensor_count_04_map_and_error.png` | 4 sensorlu harita + hata grafigi |
+| `sensor_count_05_map_and_error.png` | 5 sensorlu harita + hata grafigi |
+| `sensor_count_06_map_and_error.png` | 6 sensorlu harita + hata grafigi |
+| `sensor_count_07_map_and_error.png` | 7 sensorlu harita + hata grafigi |
+| `sensor_count_08_map_and_error.png` | 8 sensorlu harita + hata grafigi |
+| `sensor_count_09_map_and_error.png` | 9 sensorlu harita + hata grafigi |
+| `sensor_count_10_map_and_error.png` | 10 sensorlu harita + hata grafigi |
+| `summary_sensor_count_effect.png` | Sensor sayisi arttikca RMSE, kosul sayisi ve NLOS degisimi |
+| `summary.csv` | 4-10 sensor icin sayisal metrikler |
+
+Not: Bu detayli grafik betigi, ana simülasyon betiginden bagimsiz sabit rastgele tohumlar kullanarak yeniden Monte Carlo hesaplar. Bu nedenle README'deki genel ozet tablo ile bu klasorlerdeki `summary.csv` degerleri arasinda kucuk sayisal farklar olabilir. Analiz yaparken ayni tablo/grafik ailesi icindeki degerler kendi arasinda karsilastirilmalidir.
+
 ## Sensor Sayisi Analizi
 
 Sensor sayisi 4'ten baslatilip 10'a kadar arttirildi. Maksimum sensor sayisi bu asama icin `10` secildi.
