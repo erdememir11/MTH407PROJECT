@@ -4,7 +4,8 @@ Fabrika ortaminda batarya yerlestirme robotu takibi
 
 Model:
 - 50 m x 30 m fabrika alani
-- Waypoint tabanli batarya tasima / drop-off gorevi
+- Parking Docks bolgesinden baslayan, Battery Loading / Pickup noktasinda
+  bataryayi alan ve drop-off hedefine giden waypoint tabanli gorev
 - UWB anchor antenleri ile TDOA olcumu
 - LSE ilklendirme + EKF takip
 - 4 sensor icin 3 farkli geometri analizi
@@ -61,6 +62,7 @@ WAYPOINTS = np.array(
         [5.0, 25.0],
         [5.0, 21.0],
         [5.0, 19.0],
+        [5.0, 15.0],
         [12.0, 18.0],
         [24.0, 18.0],
         [28.0, 18.0],
@@ -125,6 +127,7 @@ def inflated_obstacles(cfg: Config) -> list[tuple[float, float, float, float]]:
     obs: list[tuple[float, float, float, float]] = []
 
     # B1: y=20, 0<=x<=25 with Gate-1 around x=5.
+    # This separates Parking Docks from Battery Loading / Pickup.
     obs.append((0.0, 20.0 - half, 4.0, 20.0 + half))
     obs.append((6.0, 20.0 - half, 25.0, 20.0 + half))
 
@@ -522,8 +525,8 @@ def plot_environment(
 
     # Semantic zones.
     zones = [
-        ((0, 20), 25, 10, "#dbeafe", "Warehouse zone"),
-        ((0, 10), 25, 10, "#fde68a", "Charging docks"),
+        ((0, 20), 25, 10, "#dbeafe", "Parking Docks"),
+        ((0, 10), 25, 10, "#fde68a", "Battery Loading / Pickup"),
         ((25, 10), 25, 20, "#dcfce7", "Main transit aisle"),
     ]
     for xy, width, height, color, label in zones:
@@ -560,11 +563,15 @@ def plot_environment(
     for idx, sensor in enumerate(sensors, start=1):
         ax.text(sensor[0] + 0.35, sensor[1] + 0.35, f"A{idx}", color="#1e3a8a", fontsize=8)
 
-    ax.scatter(WAYPOINTS[0, 0], WAYPOINTS[0, 1], s=80, color="#2563eb", marker="o", label="Start")
+    ax.scatter(WAYPOINTS[0, 0], WAYPOINTS[0, 1], s=80, color="#2563eb", marker="o", label="Start / Parking")
+    ax.scatter(WAYPOINTS[3, 0], WAYPOINTS[3, 1], s=90, color="#f59e0b", marker="D", label="Pickup")
     ax.scatter(WAYPOINTS[-1, 0], WAYPOINTS[-1, 1], s=120, color="#dc2626", marker="*", label="Drop-off")
+    ax.text(WAYPOINTS[0, 0] + 0.45, WAYPOINTS[0, 1] + 0.55, "Start\nParking", fontsize=8, color="#1e3a8a")
+    ax.text(WAYPOINTS[3, 0] + 0.45, WAYPOINTS[3, 1] + 0.55, "Pickup\nBattery", fontsize=8, color="#92400e")
+    ax.text(WAYPOINTS[-1, 0] + 0.45, WAYPOINTS[-1, 1] - 1.25, "Drop-off", fontsize=8, color="#991b1b")
     ax.set_xlabel("x [m]")
     ax.set_ylabel("y [m]")
-    ax.set_title("Battery placement robot tracking with UWB/TDOA")
+    ax.set_title("Parking-to-pickup battery robot tracking with UWB/TDOA")
     ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=8)
     fig.tight_layout()
     fig.savefig(cfg.output_folder / "battery_robot_tracking_map.png")
@@ -639,7 +646,7 @@ def main() -> None:
 
     metrics = main_result["metrics"]
     assert isinstance(metrics, dict)
-    print("Battery placement robot UWB/TDOA-EKF simulation completed.")
+    print("Parking-to-pickup battery robot UWB/TDOA-EKF simulation completed.")
     print(f"Main layout RMSE: {metrics['rmse_position_m']:.3f} m")
     print(f"Mean NLOS anchor count: {metrics['mean_nlos_anchor_count']:.2f} / {main_sensors.shape[0]}")
     print("4-sensor geometry analysis:")

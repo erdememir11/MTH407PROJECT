@@ -1,6 +1,6 @@
-# Fabrika Ortaminda Batarya Yerlestirme Robotu Takibi
+﻿# Fabrika Ortaminda Batarya Yerlestirme Robotu Takibi
 
-Bu proje, MTH407 donem projesi kapsaminda UWB/TDOA olcumleri ile bir mobil robotun 2D fabrika ortaminda takip edilmesini modeller. Guncel senaryo, warehouse bolgesinden baslayip batarya/drop-off noktasina giden bir robotun izlenmesidir.
+Bu proje, MTH407 donem projesi kapsaminda UWB/TDOA olcumleri ile bir mobil robotun 2D fabrika ortaminda takip edilmesini modeller. Guncel senaryo, Parking Docks bolgesinden baslayan robotun Battery Loading / Pickup noktasinda bataryayi almasi ve drop-off noktasina devam etmesidir.
 
 Ana algoritma yapisi:
 
@@ -12,12 +12,14 @@ Ana algoritma yapisi:
 
 ## Dosyalar
 
-- `agv_tdoa_ekf.py`: Ana Python simülasyon, LSE, EKF ve analiz kodu.
+- `agv_tdoa_ekf.py`: Ana Python simulasyon, LSE, EKF ve analiz kodu.
 - `requirements.txt`: Gerekli Python paketleri.
+- `factory_geometry_visual.py`: Sadece fabrika geometrisini cizen aciklamali Python kodu.
 - `outputs/tracking_results.csv`: Zaman, gercek konum, tahmin konumu, hata ve NLOS sensor sayisi.
 - `outputs/main_metrics.csv`: Ana takip senaryosu hata metrikleri.
 - `outputs/four_sensor_geometry_analysis.csv`: 4 sensorlu 3 farkli geometri karsilastirmasi.
 - `outputs/sensor_count_analysis.csv`: 4-10 sensor sayisi karsilastirmasi.
+- `outputs/factory_geometry_only.png`: Sadece fabrika geometrisi, bolgeler, kapilar ve engeller.
 - `outputs/battery_robot_tracking_map.png`: Fabrika haritasi, waypoint rotasi, engeller, sensorler ve EKF takibi.
 - `outputs/tracking_time_series.png`: x/y konumu ve zamanla konum hatasi.
 - `outputs/geometry_and_sensor_count_analysis.png`: Geometri ve sensor sayisi analiz grafigi.
@@ -60,19 +62,20 @@ Alan sinirlari:
 0 <= y <= 30 m
 ```
 
-Baslangic ve hedef:
+Baslangic, pickup ve hedef:
 
 | Nokta | Koordinat [m] | Anlam |
 |---|---:|---|
-| S | `(5, 25)` | Warehouse / battery loading baslangici |
+| S | `(5, 25)` | Parking Docks baslangici |
+| P | `(5, 15)` | Battery Loading / Pickup noktasi |
 | G | `(45, 10)` | Batarya yerlestirme / drop-off hedefi |
 
 Semantik bolgeler:
 
 | Bolge | Koordinat araligi | Rol |
 |---|---|---|
-| Warehouse zone | `0 <= x <= 25`, `20 <= y <= 30` | Robotun basladigi ve bataryayi aldigi bolge |
-| Charging docks | `0 <= x <= 25`, `10 <= y <= 20` | Gecislerde dikkat edilmesi gereken dock bolgesi |
+| Parking Docks | `0 <= x <= 25`, `20 <= y <= 30` | Robotun goreve basladigi park/dock bolgesi |
+| Battery Loading / Pickup | `0 <= x <= 25`, `10 <= y <= 20` | Robotun bataryayi teslim aldigi bolge |
 | Main transit aisle | `25 <= x <= 50`, `10 <= y <= 30` | Ana ulasim koridoru |
 | Drop-off | `x = 45`, `y = 10` | Batarya yerlestirme noktasi |
 
@@ -84,16 +87,17 @@ Kodda kullanilan rota:
 
 | Waypoint | Koordinat [m] | Aciklama |
 |---|---:|---|
-| P0 | `(5, 25)` | Baslangic / battery loading |
-| P1 | `(5, 21)` | Warehouse cikisina yaklasma |
-| P2 | `(5, 19)` | Gate-1 uzerinden charging docks tarafina gecis |
-| P3 | `(12, 18)` | Sol bolgede guvenli gecis |
-| P4 | `(24, 18)` | Main aisle giris kapisina yaklasma |
-| P5 | `(28, 18)` | Gate-2 uzerinden ana koridora giris |
-| P6 | `(40, 18)` | Ana route uzerinde ilerleme |
-| P7 | `(45, 10)` | Drop-off hedefi |
+| P0 | `(5, 25)` | Baslangic / Parking Docks |
+| P1 | `(5, 21)` | Parking Docks cikisina yaklasma |
+| P2 | `(5, 19)` | Gate-1 uzerinden Battery Loading bolgesine gecis |
+| P3 | `(5, 15)` | Pickup: bataryayi teslim alma |
+| P4 | `(12, 18)` | Pickup sonrasi sol bolgede guvenli gecis |
+| P5 | `(24, 18)` | Main aisle giris kapisina yaklasma |
+| P6 | `(28, 18)` | Gate-2 uzerinden ana koridora giris |
+| P7 | `(40, 18)` | Ana route uzerinde ilerleme |
+| P8 | `(45, 10)` | Drop-off hedefi |
 
-Not: PDF'teki rota listesinde P2 `(12,21)` olarak verilmisti. Engel sisirme uygulandiginda `(12,21) -> (24,18)` gecisi B1 bolmesiyle cakistigi icin kodda Gate-1'den gercekten gececek sekilde `(5,19)` ve `(12,18)` ara noktalari kullanildi. Bu tercih, carpismasiz rota elde etmek icin yapildi.
+Not: Guncel senaryoda robot artik baslangicta bataryayi almis kabul edilmez. Once Parking Docks bolgesinden cikar, Gate-1 uzerinden Battery Loading / Pickup bolgesine iner, `(5,15)` noktasinda bataryayi alir ve sonra onceki ana koridor/drop-off rotasina devam eder.
 
 Hareket parametreleri:
 
@@ -102,8 +106,8 @@ Hareket parametreleri:
 | Zaman adimi `dt` | `0.5 s` |
 | Nominal hiz | `1.0 m/s` |
 | Waypoint toleransi | `0.30 m` |
-| Maksimum simülasyon adimi | `150` |
-| Toplam simülasyon suresi | `74.5 s` |
+| Maksimum simulasyon adimi | `150` |
+| Toplam simulasyon suresi | `74.5 s` |
 
 EKF durum vektoru:
 
@@ -145,7 +149,7 @@ Ham bolme/duvar segmentleri:
 | Kod | Geometri | Aciklama |
 |---|---|---|
 | B0 | Dis sinir: `x=0`, `x=50`, `y=0`, `y=30` | Robot alan disina cikamaz |
-| B1 | `y=20`, `0 <= x <= 25` | Warehouse ile charging docks arasindaki bolme |
+| B1 | `y=20`, `0 <= x <= 25` | Parking Docks ile Battery Loading / Pickup arasindaki bolme |
 | B2 | `x=25`, `12 <= y <= 30` | Sol bolgeler ile main transit aisle arasindaki bolme |
 | B3 | `y=10`, `0 <= x <= 40` | Alt bolgeyi ayiran yatay sinir |
 | B4 | `x=40`, `0 <= y <= 10` | Drop-off tarafindaki dikey sinir |
@@ -299,15 +303,15 @@ Son calistirma sonucu:
 
 | Geometri | Ortalama RMSE [m] | RMSE std [m] | Ortalama kosul sayisi |
 |---|---:|---:|---:|
-| G1 corner coverage | 0.764 | 0.081 | 2.828 |
-| G2 task oriented | 2.327 | 0.972 | 34.135 |
-| G3 poor same wall | 14.227 | 0.017 | 42.405 |
+| G1 corner coverage | 0.778 | 0.078 | 2.999 |
+| G2 task oriented | 2.409 | 1.019 | 34.949 |
+| G3 poor same wall | 14.371 | 0.014 | 45.802 |
 
 Yorum: G1 en dengeli sonuc verir. G3'un hatasi cok yuksektir cunku sensorler ayni hatta toplandiginda TDOA hiperbol kesismeleri kotu kosullanir. G2 rota yakinligi acisindan mantikli gorunse de NLOS etkisi ve kosullama nedeniyle G1 kadar basarili degildir.
 
 ## Sensor Sayisi Analizi
 
-Sensör sayisi 4'ten baslatilip 10'a kadar arttirildi. Maksimum sensör sayisi bu asama icin `10` secildi.
+Sensor sayisi 4'ten baslatilip 10'a kadar arttirildi. Maksimum sensor sayisi bu asama icin `10` secildi.
 
 Bu secimin gerekcesi:
 
@@ -335,15 +339,15 @@ Son calistirma sonucu:
 
 | Sensor sayisi | Ortalama RMSE [m] |
 |---:|---:|
-| 4 | 0.759 |
-| 5 | 0.757 |
-| 6 | 0.716 |
-| 7 | 0.738 |
-| 8 | 0.732 |
-| 9 | 0.750 |
-| 10 | 0.740 |
+| 4 | 0.770 |
+| 5 | 0.758 |
+| 6 | 0.724 |
+| 7 | 0.744 |
+| 8 | 0.742 |
+| 9 | 0.754 |
+| 10 | 0.746 |
 
-Yorum: En iyi ortalama sonuc bu calistirmada 6 sensor civarinda goruldu. 7-10 sensor araliginda hata tekrar biraz artabiliyor; bunun nedeni yeni eklenen bazi anchorlarin belirli rota bolumlerinde NLOS olcumu uretmesi ve TDOA referans yapisinin dogrusal olmayan etkileridir. Bu bulgu raporda "sensör sayisi artisi her zaman tek basina yeterli degildir; geometri ve NLOS kosullari birlikte degerlendirilmelidir" seklinde yorumlanabilir.
+Yorum: En iyi ortalama sonuc bu calistirmada 6 sensor civarinda goruldu. 7-10 sensor araliginda hata tekrar biraz artabiliyor; bunun nedeni yeni eklenen bazi anchorlarin belirli rota bolumlerinde NLOS olcumu uretmesi ve TDOA referans yapisinin dogrusal olmayan etkileridir. Bu bulgu raporda "sensor sayisi artisi her zaman tek basina yeterli degildir; geometri ve NLOS kosullari birlikte degerlendirilmelidir" seklinde yorumlanabilir.
 
 ## Revizyon Icin Kodda Bakilacak Yerler
 
