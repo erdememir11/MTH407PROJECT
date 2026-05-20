@@ -270,11 +270,11 @@ Bir sonraki proje adimi icin 4 sensor sayisi sabit tutulup 3 farkli yerlesim tes
 
 ### G1 Corner Coverage
 
-Alan koselerine yakin dengeli yerlesimdir. Bu geometri ana senaryo olarak kullanilir.
+Alan koselerine yakin dengeli yerlesimdir. Bu geometri ana senaryo olarak kullanilir. A1, kullanici revizyonuna gore B3 duvarinin sol ucuna alinmistir.
 
 | Anchor | x [m] | y [m] |
 |---|---:|---:|
-| A1 | 1.0 | 1.0 |
+| A1 | 0.0 | 10.0 |
 | A2 | 49.0 | 1.0 |
 | A3 | 49.0 | 29.0 |
 | A4 | 1.0 | 29.0 |
@@ -285,18 +285,18 @@ Robotun gorev rotasina ve drop-off alanina daha yakin anchorlar icerir. Pratikte
 
 | Anchor | x [m] | y [m] |
 |---|---:|---:|
-| A1 | 3.0 | 27.5 |
+| A1 | 0.0 | 10.0 |
 | A2 | 24.0 | 27.5 |
 | A3 | 28.0 | 15.5 |
 | A4 | 48.0 | 11.0 |
 
 ### G3 Poor Same Wall
 
-Kotu geometri ornegidir. Anchorlar neredeyse ayni alt duvar hattindadir. Bu dizilim TDOA icin y yonundeki bilgiyi zayiflatir.
+Kotu geometri ornegidir. A1 B3 duvarinin sol ucunda sabit tutulurken diger anchorlar alt hatta yakin secilmistir. Bu dizilim TDOA icin y yonundeki bilgiyi zayiflatir.
 
 | Anchor | x [m] | y [m] |
 |---|---:|---:|
-| A1 | 2.0 | 2.0 |
+| A1 | 0.0 | 10.0 |
 | A2 | 17.0 | 2.0 |
 | A3 | 33.0 | 2.0 |
 | A4 | 48.0 | 2.0 |
@@ -305,9 +305,9 @@ Son calistirma sonucu:
 
 | Geometri | Ortalama RMSE [m] | RMSE std [m] | Ortalama kosul sayisi |
 |---|---:|---:|---:|
-| G1 corner coverage | 0.814 | 0.071 | 3.666 |
-| G2 task oriented | 1.860 | 1.119 | 35.203 |
-| G3 poor same wall | 14.607 | 0.025 | 51.801 |
+| G1 corner coverage | 0.832 | 0.077 | 4.796 |
+| G2 task oriented | 1.387 | 0.286 | 21.713 |
+| G3 poor same wall | 2.829 | 2.038 | 42.051 |
 
 Yorum: G1 en dengeli sonuc verir. G3'un hatasi cok yuksektir cunku sensorler ayni hatta toplandiginda TDOA hiperbol kesismeleri kotu kosullanir. G2 rota yakinligi acisindan mantikli gorunse de NLOS etkisi ve kosullama nedeniyle G1 kadar basarili degildir.
 
@@ -326,7 +326,7 @@ Kullanilan 10 sensorluk maksimum havuz:
 
 | Sira | x [m] | y [m] | Aciklama |
 |---|---:|---:|---|
-| 1 | 1.0 | 1.0 | Sol alt kose, referans |
+| 1 | 0.0 | 10.0 | B3 duvarinin sol ucu, referans A1 |
 | 2 | 49.0 | 1.0 | Sag alt kose |
 | 3 | 49.0 | 29.0 | Sag ust kose |
 | 4 | 1.0 | 29.0 | Sol ust kose |
@@ -341,12 +341,12 @@ Son calistirma sonucu:
 
 | Sensor sayisi | Ortalama RMSE [m] |
 |---:|---:|
-| 4 | 0.825 |
-| 5 | 0.780 |
-| 6 | 0.756 |
-| 7 | 0.768 |
-| 8 | 0.737 |
-| 9 | 0.755 |
+| 4 | 0.843 |
+| 5 | 0.796 |
+| 6 | 0.772 |
+| 7 | 0.795 |
+| 8 | 0.743 |
+| 9 | 0.759 |
 | 10 | 0.744 |
 
 Yorum: En iyi ortalama sonuc bu calistirmada 8 sensor civarinda goruldu. Daha fazla sensor eklemek her zaman monoton iyilesme saglamaz; cunku yeni eklenen anchorlarin belirli rota bolumlerinde NLOS olcumu uretmesi ve TDOA referans yapisinin dogrusal olmayan etkileri performansi etkiler. Bu bulgu raporda "sensor sayisi artisi geometri ve NLOS kosullariyla birlikte degerlendirilmelidir" seklinde yorumlanabilir.

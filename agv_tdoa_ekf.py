@@ -76,7 +76,7 @@ DROPOFF_INDEX = 3
 SENSOR_GEOMETRIES_4 = {
     "G1_corner_coverage": np.array(
         [
-            [1.0, 1.0],
+            [0.0, 10.0],
             [49.0, 1.0],
             [49.0, 29.0],
             [1.0, 29.0],
@@ -85,7 +85,7 @@ SENSOR_GEOMETRIES_4 = {
     ),
     "G2_task_oriented": np.array(
         [
-            [3.0, 27.5],
+            [0.0, 10.0],
             [24.0, 27.5],
             [28.0, 15.5],
             [48.0, 11.0],
@@ -94,7 +94,7 @@ SENSOR_GEOMETRIES_4 = {
     ),
     "G3_poor_same_wall": np.array(
         [
-            [2.0, 2.0],
+            [0.0, 10.0],
             [17.0, 2.0],
             [33.0, 2.0],
             [48.0, 2.0],
@@ -106,7 +106,7 @@ SENSOR_GEOMETRIES_4 = {
 
 SENSOR_POOL_MAX_10 = np.array(
     [
-        [1.0, 1.0],
+        [0.0, 10.0],
         [49.0, 1.0],
         [49.0, 29.0],
         [1.0, 29.0],
