@@ -37,7 +37,7 @@ Ortam tanimi:
    - B1: y = 20, 0 <= x <= 25.
      Parking Docks ile Battery Loading / Pickup arasindaki yatay bolmedir.
      Gate-1 nedeniyle x = 4..6 arasi aciktir.
-   - B2: x = 25, 12 <= y <= 30.
+   - B2: x = 25, 10 <= y <= 30.
      Sol bolgeler ile main transit aisle arasindaki dikey bolmedir.
      Gate-2 nedeniyle y = 16.6..19.0 arasi aciktir.
    - B3: y = 10, 0 <= x <= 40.
@@ -106,7 +106,7 @@ def inflated_obstacles(cfg: FactoryGeometry) -> list[tuple[str, tuple[float, flo
     return [
         ("B1-left", (0.0, 20.0 - half, 4.0, 20.0 + half)),
         ("B1-right", (6.0, 20.0 - half, 25.0, 20.0 + half)),
-        ("B2-lower", (25.0 - half, 12.0, 25.0 + half, 16.6)),
+        ("B2-lower", (25.0 - half, 10.0, 25.0 + half, 16.6)),
         ("B2-upper", (25.0 - half, 19.0, 25.0 + half, 30.0)),
         ("B3", (0.0, 10.0 - half, 40.0, 10.0 + half)),
         ("B4", (40.0 - half, 0.0, 40.0 + half, 10.0)),
@@ -223,7 +223,7 @@ def draw_inner_walls(ax) -> None:
     ax.plot([6.0, 25.0], [20.0, 20.0], color=wall_color, linewidth=wall_width, zorder=6)
 
     # B2 with Gate-2 gap y=16.6..19.0.
-    ax.plot([25.0, 25.0], [12.0, 16.6], color=wall_color, linewidth=wall_width, zorder=6)
+    ax.plot([25.0, 25.0], [10.0, 16.6], color=wall_color, linewidth=wall_width, zorder=6)
     ax.plot([25.0, 25.0], [19.0, 30.0], color=wall_color, linewidth=wall_width, zorder=6)
 
     # B3 and B4.

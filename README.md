@@ -81,23 +81,25 @@ Semantik bolgeler:
 
 ## Robot Hareket Rotasi
 
-Robot dogrudan hedefe gitmez. Engel ve bolme yapisini dikkate alan waypoint rotasini takip eder.
+Robot hareketi artik cok waypointli serbest rota yerine gorev fazlariyla tanimlanir. Simulasyon robotun Parking Dock noktasindan cikmasiyla baslar, pickup noktasinda batarya yukleme icin 5 saniye bekler ve drop-off noktasina ulasinca sonlandirilir.
 
-Kodda kullanilan rota:
+Kodda kullanilan gorev noktalar:
 
-| Waypoint | Koordinat [m] | Aciklama |
+| Nokta | Koordinat [m] | Aciklama |
 |---|---:|---|
-| P0 | `(5, 25)` | Baslangic / Parking Docks |
-| P1 | `(5, 21)` | Parking Docks cikisina yaklasma |
-| P2 | `(5, 19)` | Gate-1 uzerinden Battery Loading bolgesine gecis |
-| P3 | `(5, 15)` | Pickup: bataryayi teslim alma |
-| P4 | `(12, 18)` | Pickup sonrasi sol bolgede guvenli gecis |
-| P5 | `(24, 18)` | Main aisle giris kapisina yaklasma |
-| P6 | `(28, 18)` | Gate-2 uzerinden ana koridora giris |
-| P7 | `(40, 18)` | Ana route uzerinde ilerleme |
-| P8 | `(45, 10)` | Drop-off hedefi |
+| M0 | `(5, 25)` | Baslangic / Parking Docks |
+| M1 | `(5, 15)` | Pickup: bataryayi teslim alma ve 5 saniye bekleme |
+| M2 | `(25, 18)` | Gate-2 acikligi / main aisle girisi |
+| M3 | `(45, 10)` | Drop-off hedefi |
 
-Not: Guncel senaryoda robot artik baslangicta bataryayi almis kabul edilmez. Once Parking Docks bolgesinden cikar, Gate-1 uzerinden Battery Loading / Pickup bolgesine iner, `(5,15)` noktasinda bataryayi alir ve sonra onceki ana koridor/drop-off rotasina devam eder.
+Hareket fazlari:
+
+| Faz | Hareket | Hiz | Aciklama |
+|---|---|---:|---|
+| 1 | `(5,25) -> (5,15)` | `1.0 m/s` | Gate-1 uzerinden tamamen dikey hareket |
+| 2 | `(5,15)` uzerinde bekleme | `0.0 m/s` | 5 saniyelik batarya yukleme islemi |
+| 3 | `(5,15) -> (25,18)` | `1.0 m/s` | Gate-2 acikligindan ana koridora cikis |
+| 4 | `(25,18) -> (45,10)` | `1.0 m/s` | Ana koridordan drop-off'a en az yon degisimiyle ilerleme |
 
 Hareket parametreleri:
 
@@ -105,9 +107,9 @@ Hareket parametreleri:
 |---|---:|
 | Zaman adimi `dt` | `0.5 s` |
 | Nominal hiz | `1.0 m/s` |
-| Waypoint toleransi | `0.30 m` |
-| Maksimum simulasyon adimi | `150` |
-| Toplam simulasyon suresi | `74.5 s` |
+| Pickup bekleme suresi | `5.0 s` |
+| Toplam simulasyon suresi | `57.5 s` |
+| Simulasyon bitis kosulu | Drop-off noktasina ulasma |
 
 EKF durum vektoru:
 
@@ -150,7 +152,7 @@ Ham bolme/duvar segmentleri:
 |---|---|---|
 | B0 | Dis sinir: `x=0`, `x=50`, `y=0`, `y=30` | Robot alan disina cikamaz |
 | B1 | `y=20`, `0 <= x <= 25` | Parking Docks ile Battery Loading / Pickup arasindaki bolme |
-| B2 | `x=25`, `12 <= y <= 30` | Sol bolgeler ile main transit aisle arasindaki bolme |
+| B2 | `x=25`, `10 <= y <= 30` | Sol bolgeler ile main transit aisle arasindaki bolme |
 | B3 | `y=10`, `0 <= x <= 40` | Alt bolgeyi ayiran yatay sinir |
 | B4 | `x=40`, `0 <= y <= 10` | Drop-off tarafindaki dikey sinir |
 
@@ -162,7 +164,7 @@ Sisirilmis yasak dikdortgenler:
 |---|---|---|
 | B1-left | `(0.0, 19.3, 4.0, 20.7)` | Gate-1 solundaki B1 parcasi |
 | B1-right | `(6.0, 19.3, 25.0, 20.7)` | Gate-1 sagindaki B1 parcasi |
-| B2-lower | `(24.3, 12.0, 25.7, 16.6)` | Gate-2 alt parcasi |
+| B2-lower | `(24.3, 10.0, 25.7, 16.6)` | Gate-2 alt parcasi; B3 ile arasindaki gereksiz bosluk kaldirildi |
 | B2-upper | `(24.3, 19.0, 25.7, 30.0)` | Gate-2 ust parcasi |
 | B3 | `(0.0, 9.3, 40.0, 10.7)` | Alt yatay bolme |
 | B4 | `(39.3, 0.0, 40.7, 10.0)` | Drop-off dikey bolmesi |
@@ -303,9 +305,9 @@ Son calistirma sonucu:
 
 | Geometri | Ortalama RMSE [m] | RMSE std [m] | Ortalama kosul sayisi |
 |---|---:|---:|---:|
-| G1 corner coverage | 0.778 | 0.078 | 2.999 |
-| G2 task oriented | 2.409 | 1.019 | 34.949 |
-| G3 poor same wall | 14.371 | 0.014 | 45.802 |
+| G1 corner coverage | 0.814 | 0.071 | 3.666 |
+| G2 task oriented | 1.860 | 1.119 | 35.203 |
+| G3 poor same wall | 14.607 | 0.025 | 51.801 |
 
 Yorum: G1 en dengeli sonuc verir. G3'un hatasi cok yuksektir cunku sensorler ayni hatta toplandiginda TDOA hiperbol kesismeleri kotu kosullanir. G2 rota yakinligi acisindan mantikli gorunse de NLOS etkisi ve kosullama nedeniyle G1 kadar basarili degildir.
 
@@ -339,15 +341,15 @@ Son calistirma sonucu:
 
 | Sensor sayisi | Ortalama RMSE [m] |
 |---:|---:|
-| 4 | 0.770 |
-| 5 | 0.758 |
-| 6 | 0.724 |
-| 7 | 0.744 |
-| 8 | 0.742 |
-| 9 | 0.754 |
-| 10 | 0.746 |
+| 4 | 0.825 |
+| 5 | 0.780 |
+| 6 | 0.756 |
+| 7 | 0.768 |
+| 8 | 0.737 |
+| 9 | 0.755 |
+| 10 | 0.744 |
 
-Yorum: En iyi ortalama sonuc bu calistirmada 6 sensor civarinda goruldu. 7-10 sensor araliginda hata tekrar biraz artabiliyor; bunun nedeni yeni eklenen bazi anchorlarin belirli rota bolumlerinde NLOS olcumu uretmesi ve TDOA referans yapisinin dogrusal olmayan etkileridir. Bu bulgu raporda "sensor sayisi artisi her zaman tek basina yeterli degildir; geometri ve NLOS kosullari birlikte degerlendirilmelidir" seklinde yorumlanabilir.
+Yorum: En iyi ortalama sonuc bu calistirmada 8 sensor civarinda goruldu. Daha fazla sensor eklemek her zaman monoton iyilesme saglamaz; cunku yeni eklenen anchorlarin belirli rota bolumlerinde NLOS olcumu uretmesi ve TDOA referans yapisinin dogrusal olmayan etkileri performansi etkiler. Bu bulgu raporda "sensor sayisi artisi geometri ve NLOS kosullariyla birlikte degerlendirilmelidir" seklinde yorumlanabilir.
 
 ## Revizyon Icin Kodda Bakilacak Yerler
 
@@ -356,15 +358,15 @@ Temel ortam parametreleri `Config` sinifindadir:
 - `factory_size`: fabrika boyutu
 - `dt`: zaman adimi
 - `nominal_speed`: robot hizi
-- `waypoint_tolerance`: waypoint'e ulasma toleransi
+- `pickup_wait_time`: pickup noktasindaki batarya yukleme bekleme suresi
 - `robot_radius`, `safety_margin`: engel sisirme parametreleri
 - `sigma_toa_los`, `sigma_toa_nlos`: UWB olcum gurultuleri
 - `sigma_accel`: EKF surec gurultusu
 - `monte_carlo_runs`: analiz tekrar sayisi
 
-Rota:
+Gorev noktasi rotasi:
 
-- `WAYPOINTS`
+- `MISSION_POINTS`
 
 4 sensor geometrileri:
 

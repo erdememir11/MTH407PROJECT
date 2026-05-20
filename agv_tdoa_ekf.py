@@ -5,7 +5,8 @@ Fabrika ortaminda batarya yerlestirme robotu takibi
 Model:
 - 50 m x 30 m fabrika alani
 - Parking Docks bolgesinden baslayan, Battery Loading / Pickup noktasinda
-  bataryayi alan ve drop-off hedefine giden waypoint tabanli gorev
+  5 saniye bekleyerek bataryayi alan ve drop-off hedefine en az yon
+  degisimiyle giden gorev
 - UWB anchor antenleri ile TDOA olcumu
 - LSE ilklendirme + EKF takip
 - 4 sensor icin 3 farkli geometri analizi
@@ -33,8 +34,7 @@ class Config:
     c: float = 299_792_458.0
     dt: float = 0.5
     nominal_speed: float = 1.0
-    waypoint_tolerance: float = 0.30
-    max_steps: int = 150
+    pickup_wait_time: float = 5.0
     factory_size: tuple[float, float] = (50.0, 30.0)
     robot_radius: float = 0.35
     safety_margin: float = 0.25
@@ -57,20 +57,20 @@ class Config:
         return 1.50 / self.c
 
 
-WAYPOINTS = np.array(
+MISSION_POINTS = np.array(
     [
-        [5.0, 25.0],
-        [5.0, 21.0],
-        [5.0, 19.0],
-        [5.0, 15.0],
-        [12.0, 18.0],
-        [24.0, 18.0],
-        [28.0, 18.0],
-        [40.0, 18.0],
-        [45.0, 10.0],
+        [5.0, 25.0],   # Parking Dock start
+        [5.0, 15.0],   # Battery pickup point
+        [25.0, 18.0],  # Gate-2 / main corridor entry
+        [45.0, 10.0],  # Drop-off
     ],
     dtype=float,
 )
+
+PARKING_START_INDEX = 0
+PICKUP_INDEX = 1
+GATE2_INDEX = 2
+DROPOFF_INDEX = 3
 
 
 SENSOR_GEOMETRIES_4 = {
@@ -131,8 +131,9 @@ def inflated_obstacles(cfg: Config) -> list[tuple[float, float, float, float]]:
     obs.append((0.0, 20.0 - half, 4.0, 20.0 + half))
     obs.append((6.0, 20.0 - half, 25.0, 20.0 + half))
 
-    # B2: x=25, 12<=y<=30 with Gate-2 y in [16.6, 19.0].
-    obs.append((25.0 - half, 12.0, 25.0 + half, 16.6))
+    # B2: x=25 with Gate-2 y in [16.6, 19.0].
+    # Lower part is extended down to B3, removing the old ineffective gap.
+    obs.append((25.0 - half, 10.0, 25.0 + half, 16.6))
     obs.append((25.0 - half, 19.0, 25.0 + half, 30.0))
 
     # B3: y=10, 0<=x<=40. Drop-off approach remains open for x>40.
@@ -145,51 +146,60 @@ def inflated_obstacles(cfg: Config) -> list[tuple[float, float, float, float]]:
 
 
 def simulate_robot_motion(cfg: Config) -> tuple[np.ndarray, np.ndarray]:
-    state = np.zeros((cfg.max_steps, 4), dtype=float)
-    state[0, 0:2] = WAYPOINTS[0]
-    waypoint_idx = 1
-
     obs = inflated_obstacles(cfg)
-    finished = False
+    samples: list[np.ndarray] = []
+    current = MISSION_POINTS[PARKING_START_INDEX].copy()
+    samples.append(np.array([current[0], current[1], 0.0, 0.0], dtype=float))
 
-    for k in range(1, cfg.max_steps):
-        p = state[k - 1, 0:2].copy()
+    # 1) Parking Dock -> Pickup: vertical, constant-speed motion through Gate-1.
+    current = append_motion_segment(samples, current, MISSION_POINTS[PICKUP_INDEX], cfg, obs)
 
-        if finished:
-            state[k] = [p[0], p[1], 0.0, 0.0]
-            continue
+    # 2) Pickup operation: battery loading is represented by a 5-second stop.
+    wait_steps = int(round(cfg.pickup_wait_time / cfg.dt))
+    for _ in range(wait_steps):
+        samples.append(np.array([current[0], current[1], 0.0, 0.0], dtype=float))
 
-        target = WAYPOINTS[waypoint_idx]
-        delta = target - p
-        distance = np.linalg.norm(delta)
+    # 3) Pickup -> Gate-2: constant speed, entering the main corridor through the opening.
+    current = append_motion_segment(samples, current, MISSION_POINTS[GATE2_INDEX], cfg, obs)
 
-        if distance < cfg.waypoint_tolerance and waypoint_idx < len(WAYPOINTS) - 1:
-            waypoint_idx += 1
-            target = WAYPOINTS[waypoint_idx]
-            delta = target - p
-            distance = np.linalg.norm(delta)
+    # 4) Gate-2 -> Drop-off: minimum direction-change path in the main corridor.
+    append_motion_segment(samples, current, MISSION_POINTS[DROPOFF_INDEX], cfg, obs)
 
-        if distance <= cfg.nominal_speed * cfg.dt:
-            p_new = target.copy()
-            velocity = (p_new - p) / cfg.dt
-            if waypoint_idx == len(WAYPOINTS) - 1:
-                finished = True
-        else:
-            direction = delta / max(distance, 1e-12)
-            velocity = cfg.nominal_speed * direction
-            p_new = p + velocity * cfg.dt
+    state = np.vstack(samples)
+    t = np.arange(state.shape[0]) * cfg.dt
+    return t, state
 
-        if not inside_map(p_new, cfg) or collision_point(p_new, obs):
+
+def append_motion_segment(
+    samples: list[np.ndarray],
+    start: np.ndarray,
+    target: np.ndarray,
+    cfg: Config,
+    obstacles: list[tuple[float, float, float, float]],
+) -> np.ndarray:
+    current = start.copy()
+
+    while True:
+        delta = target - current
+        distance = float(np.linalg.norm(delta))
+        if distance <= 1e-9:
+            return target.copy()
+
+        step_length = min(cfg.nominal_speed * cfg.dt, distance)
+        direction = delta / distance
+        next_position = current + direction * step_length
+        velocity = (next_position - current) / cfg.dt
+
+        if not inside_map(next_position, cfg) or collision_point(next_position, obstacles):
             raise RuntimeError(
-                f"Waypoint route collision at step {k}: candidate={p_new}. "
-                "Check gates, obstacles, or waypoint definitions."
+                f"Mission segment collision: start={start}, target={target}, candidate={next_position}."
             )
 
-        state[k, 0:2] = p_new
-        state[k, 2:4] = velocity
+        samples.append(np.array([next_position[0], next_position[1], velocity[0], velocity[1]], dtype=float))
+        current = next_position
 
-    t = np.arange(cfg.max_steps) * cfg.dt
-    return t, state
+        if np.linalg.norm(target - current) <= 1e-9:
+            return target.copy()
 
 
 def inside_map(p: np.ndarray, cfg: Config) -> bool:
@@ -555,7 +565,14 @@ def plot_environment(
         alpha=0.65,
         label="NLOS measurement instant",
     )
-    ax.plot(WAYPOINTS[:, 0], WAYPOINTS[:, 1], "o--", color="#92400e", linewidth=1.0, label="Waypoint route")
+    ax.plot(
+        MISSION_POINTS[:, 0],
+        MISSION_POINTS[:, 1],
+        "o--",
+        color="#92400e",
+        linewidth=1.0,
+        label="Mission route",
+    )
     ax.plot(true_positions[:, 0], true_positions[:, 1], "k-", linewidth=2.0, label="True robot path")
     ax.plot(ekf["position"][:, 0], ekf["position"][:, 1], color="#be123c", linewidth=1.7, label="EKF estimate")
 
@@ -563,12 +580,51 @@ def plot_environment(
     for idx, sensor in enumerate(sensors, start=1):
         ax.text(sensor[0] + 0.35, sensor[1] + 0.35, f"A{idx}", color="#1e3a8a", fontsize=8)
 
-    ax.scatter(WAYPOINTS[0, 0], WAYPOINTS[0, 1], s=80, color="#2563eb", marker="o", label="Start / Parking")
-    ax.scatter(WAYPOINTS[3, 0], WAYPOINTS[3, 1], s=90, color="#f59e0b", marker="D", label="Pickup")
-    ax.scatter(WAYPOINTS[-1, 0], WAYPOINTS[-1, 1], s=120, color="#dc2626", marker="*", label="Drop-off")
-    ax.text(WAYPOINTS[0, 0] + 0.45, WAYPOINTS[0, 1] + 0.55, "Start\nParking", fontsize=8, color="#1e3a8a")
-    ax.text(WAYPOINTS[3, 0] + 0.45, WAYPOINTS[3, 1] + 0.55, "Pickup\nBattery", fontsize=8, color="#92400e")
-    ax.text(WAYPOINTS[-1, 0] + 0.45, WAYPOINTS[-1, 1] - 1.25, "Drop-off", fontsize=8, color="#991b1b")
+    ax.scatter(
+        MISSION_POINTS[PARKING_START_INDEX, 0],
+        MISSION_POINTS[PARKING_START_INDEX, 1],
+        s=80,
+        color="#2563eb",
+        marker="o",
+        label="Start / Parking",
+    )
+    ax.scatter(
+        MISSION_POINTS[PICKUP_INDEX, 0],
+        MISSION_POINTS[PICKUP_INDEX, 1],
+        s=90,
+        color="#f59e0b",
+        marker="D",
+        label="Pickup",
+    )
+    ax.scatter(
+        MISSION_POINTS[DROPOFF_INDEX, 0],
+        MISSION_POINTS[DROPOFF_INDEX, 1],
+        s=120,
+        color="#dc2626",
+        marker="*",
+        label="Drop-off",
+    )
+    ax.text(
+        MISSION_POINTS[PARKING_START_INDEX, 0] + 0.45,
+        MISSION_POINTS[PARKING_START_INDEX, 1] + 0.55,
+        "Start\nParking",
+        fontsize=8,
+        color="#1e3a8a",
+    )
+    ax.text(
+        MISSION_POINTS[PICKUP_INDEX, 0] + 0.45,
+        MISSION_POINTS[PICKUP_INDEX, 1] + 0.55,
+        "Pickup\n5 s wait",
+        fontsize=8,
+        color="#92400e",
+    )
+    ax.text(
+        MISSION_POINTS[DROPOFF_INDEX, 0] + 0.45,
+        MISSION_POINTS[DROPOFF_INDEX, 1] - 1.25,
+        "Drop-off",
+        fontsize=8,
+        color="#991b1b",
+    )
     ax.set_xlabel("x [m]")
     ax.set_ylabel("y [m]")
     ax.set_title("Parking-to-pickup battery robot tracking with UWB/TDOA")
