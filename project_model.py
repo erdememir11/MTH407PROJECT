@@ -579,7 +579,7 @@ def plot_case_map_and_error(
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 6), dpi=150)
     draw_environment_base(axes[0], cfg)
-    axes[0].plot(MISSION_POINTS[:, 0], MISSION_POINTS[:, 1], "o--", color="#92400e", linewidth=1.2, label="Mission route")
+    axes[0].plot(MISSION_POINTS[:, 0], MISSION_POINTS[:, 1], "o--", color="#92400e", linewidth=1.2, label="_nolegend_")
     axes[0].plot(true_positions[:, 0], true_positions[:, 1], color="black", linewidth=2.0, label="True path")
     axes[0].plot(estimate[:, 0], estimate[:, 1], color="#be123c", linewidth=1.5, label="EKF estimate")
     if np.any(nlos_count > 0):
@@ -588,7 +588,7 @@ def plot_case_map_and_error(
     for idx, sensor in enumerate(sensors, start=1):
         axes[0].text(sensor[0] + 0.35, sensor[1] + 0.35, f"A{idx}", fontsize=8, color="#1e3a8a")
     mark_mission_points(axes[0])
-    axes[0].legend(loc="upper right", fontsize=7)
+    axes[0].legend(loc="lower center", bbox_to_anchor=(0.5, -0.22), ncol=3, fontsize=7, frameon=True)
     axes[0].set_title("True path vs EKF estimate")
 
     axes[1].plot(t, error, color="#047857", linewidth=1.5, label="Position error")

@@ -74,11 +74,11 @@ def plot_expected_robot_motion(cfg: Config, output_path: Path) -> None:
 
     fig, ax = plt.subplots(figsize=(12, 7), dpi=150)
     draw_environment_base(ax, cfg)
-    ax.plot(MISSION_POINTS[:, 0], MISSION_POINTS[:, 1], "o--", color="#92400e", linewidth=1.4, label="Mission points")
+    ax.plot(MISSION_POINTS[:, 0], MISSION_POINTS[:, 1], "o--", color="#92400e", linewidth=1.4, label="_nolegend_")
     ax.plot(positions[:, 0], positions[:, 1], color="black", linewidth=2.0, label="Expected robot motion")
     mark_mission_points(ax)
     ax.set_title(f"Expected Robot Motion, total time={t[-1]:.1f} s")
-    ax.legend(loc="upper right")
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.14), ncol=2, frameon=True)
     fig.tight_layout()
     fig.savefig(output_path)
     plt.close(fig)
