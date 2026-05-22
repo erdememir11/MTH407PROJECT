@@ -1,3 +1,23 @@
+"""
+project_model.py
+
+Bu dosya projenin ortak model ve algoritma kütüphanesidir.
+Tek başına bir çıktı üretmez; diğer çalıştırma dosyaları tarafından içe aktarılır.
+
+İçerdiği ana görevler:
+1. Fabrika ortamı, robot görevi ve sensör geometrilerini tanımlar.
+2. Robotun beklenen hareketini simülasyon olarak üretir.
+3. UWB/TDOA ölçümlerini LOS veya LOS/NLOS gürültü senaryosuna göre üretir.
+4. İlk konumu LSE yöntemiyle tahmin eder.
+5. EKF ile robotun konumunu ve hızını zaman içinde takip eder.
+6. RMSE, koşul sayısı ve NLOS gibi performans metriklerini hesaplar.
+7. Ortak grafik çizim fonksiyonlarını sağlar.
+
+Bu dosyanın ayrı tutulmasının nedeni, baseline ve realistic gürültü
+senaryolarında aynı fiziksel modelin ve aynı takip algoritmasının
+tekrar kullanılmasını sağlamaktır.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,6 +29,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
+
+# =============================================================================
+# 1. GENEL KONFİGÜRASYON
+# -----------------------------------------------------------------------------
+# Config sınıfı, tüm simülasyon boyunca kullanılan ortak parametreleri tutar.
+# Buradaki değerler değiştirildiğinde robot hızı, fabrika boyutu, gürültü
+# seviyesi, EKF süreç gürültüsü ve Monte Carlo tekrar sayısı gibi temel
+# deney ayarları değişmiş olur.
+# =============================================================================
 
 @dataclass(frozen=True)
 class Config:
@@ -39,6 +68,15 @@ class Config:
         return 1.50 / self.c
 
 
+# =============================================================================
+# 2. GÖREV NOKTALARI VE ROBOT ROTASI
+# -----------------------------------------------------------------------------
+# MISSION_POINTS robotun fiziksel görev yolunu tanımlar:
+# Parking Docks -> Pickup -> Gate-2 -> Drop-off.
+# Simülasyon bu noktaları sırayla takip eder. Pickup noktasında ayrıca
+# Config.pickup_wait_time kadar bekleme yapılır.
+# =============================================================================
+
 MISSION_POINTS = np.array(
     [
         [5.0, 25.0],   # Parking Dock start
@@ -54,6 +92,17 @@ PICKUP_INDEX = 1
 GATE2_INDEX = 2
 DROPOFF_INDEX = 3
 
+
+# =============================================================================
+# 3. SENSÖR GEOMETRİLERİ
+# -----------------------------------------------------------------------------
+# SENSOR_GEOMETRIES_4, Word şablonunda verilen 6 farklı 4 sensörlü geometriyi
+# içerir. Bu geometriler projenin ana karşılaştırma konusudur.
+#
+# SENSOR_POOL_10 ise sensör sayısı 4'ten 10'a çıkarıldığında kullanılacak
+# maksimum sensör havuzudur. Analizde ilk 4, ilk 5, ..., ilk 10 sensör sırasıyla
+# denenir.
+# =============================================================================
 
 SENSOR_GEOMETRIES_4 = {
     "G1_balanced_corner_coverage": np.array(
@@ -110,7 +159,16 @@ GEOMETRY_LABELS = {
 }
 
 
+# =============================================================================
+# 4. FABRİKA ENGEL MODELİ
+# -----------------------------------------------------------------------------
+# Fabrika duvarları ve bölmeleri robot için yasak bölgedir. Robot noktasal
+# modellendiği için duvarlar robot yarıçapı + güvenlik payı kadar şişirilir.
+# inflated_obstacles fonksiyonu bu şişirilmiş yasak dikdörtgenleri döndürür.
+# =============================================================================
+
 def inflated_obstacles(cfg: Config) -> list[tuple[float, float, float, float]]:
+    """Şişirilmiş duvar/engel dikdörtgenlerini (xmin, ymin, xmax, ymax) döndürür."""
     half = cfg.wall_thickness / 2.0 + cfg.d_safe
     return [
         (0.0, 20.0 - half, 4.0, 20.0 + half),
@@ -122,7 +180,16 @@ def inflated_obstacles(cfg: Config) -> list[tuple[float, float, float, float]]:
     ]
 
 
+# =============================================================================
+# 5. ROBOT HAREKET SİMÜLASYONU
+# -----------------------------------------------------------------------------
+# Bu bölüm robotun gerçek kabul edilen yolunu üretir. Takip algoritması bu
+# gerçek yolu doğrudan bilmez; gerçek yol yalnızca ölçüm üretmek ve sonradan
+# hata hesabı yapmak için kullanılır.
+# =============================================================================
+
 def simulate_robot_motion(cfg: Config) -> tuple[np.ndarray, np.ndarray]:
+    """Robotun görev fazlarına göre gerçek konum ve hız dizisini üretir."""
     obstacles = inflated_obstacles(cfg)
     samples: list[np.ndarray] = []
     current = MISSION_POINTS[PARKING_START_INDEX].copy()
@@ -149,6 +216,7 @@ def append_motion_segment(
     cfg: Config,
     obstacles: list[tuple[float, float, float, float]],
 ) -> np.ndarray:
+    """İki görev noktası arasında sabit hızlı, çarpışmasız hareket örnekleri ekler."""
     current = start.copy()
     while True:
         delta = target - current
@@ -166,12 +234,23 @@ def append_motion_segment(
 
 
 def inside_map(p: np.ndarray, cfg: Config) -> bool:
+    """Bir noktanın fabrika sınırları içinde kalıp kalmadığını kontrol eder."""
     return 0.0 <= p[0] <= cfg.factory_size[0] and 0.0 <= p[1] <= cfg.factory_size[1]
 
 
 def collision_point(p: np.ndarray, obstacles: list[tuple[float, float, float, float]]) -> bool:
+    """Bir noktanın şişirilmiş engellerden birinin içine düşüp düşmediğini kontrol eder."""
     return any(xmin <= p[0] <= xmax and ymin <= p[1] <= ymax for xmin, ymin, xmax, ymax in obstacles)
 
+
+# =============================================================================
+# 6. UWB/TDOA ÖLÇÜM ÜRETİMİ
+# -----------------------------------------------------------------------------
+# Bu bölüm sensör konumlarına ve robotun gerçek konumuna göre TDOA menzil farkı
+# ölçümleri üretir. İki gürültü modu desteklenir:
+# - baseline_constant_los: Tüm bağlantılar düşük gürültülü LOS kabul edilir.
+# - realistic_los_nlos: Engel kesişimi varsa NLOS kabul edilir ve gürültü artar.
+# =============================================================================
 
 def generate_tdoa_measurements(
     positions: np.ndarray,
@@ -180,6 +259,7 @@ def generate_tdoa_measurements(
     rng: np.random.Generator,
     noise_mode: str,
 ) -> dict[str, np.ndarray]:
+    """Verilen sensör geometrisi için gürültülü TDOA ölçüm dizisi üretir."""
     if noise_mode not in {"baseline_constant_los", "realistic_los_nlos"}:
         raise ValueError(f"Unknown noise mode: {noise_mode}")
 
@@ -214,7 +294,16 @@ def generate_tdoa_measurements(
     return {"z_range_diff": z_range_diff, "z_time_diff": z_time_diff, "r": r_mats, "is_nlos": is_nlos}
 
 
+# =============================================================================
+# 7. LSE İLE BAŞLANGIÇ TAHMİNİ
+# -----------------------------------------------------------------------------
+# EKF'nin başlayabilmesi için ilk konum ve kovaryans tahminine ihtiyaç vardır.
+# Bu bölüm ilk TDOA ölçümlerinden Gauss-Newton tabanlı LSE ile başlangıç konumu
+# üretir, ardından ilk hız bileşenlerini ilk birkaç LSE konumundan çıkarır.
+# =============================================================================
+
 def initialize_with_lse(measurements: dict[str, np.ndarray], cfg: Config, sensors: np.ndarray) -> dict[str, np.ndarray]:
+    """İlk TDOA ölçümlerinden EKF başlangıç durumu ve kovaryansını üretir."""
     count = min(8, measurements["z_range_diff"].shape[0])
     p_hat = np.zeros((count, 2), dtype=float)
     p_cov = np.zeros((count, 2, 2), dtype=float)
@@ -238,6 +327,7 @@ def initialize_with_lse(measurements: dict[str, np.ndarray], cfg: Config, sensor
 
 
 def estimate_position_lse(z: np.ndarray, r_mat: np.ndarray, cfg: Config, sensors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Tek bir zaman adımı için Gauss-Newton LSE konum tahmini yapar."""
     p = sensors.mean(axis=0).copy()
     w = np.linalg.inv(r_mat)
 
@@ -257,7 +347,16 @@ def estimate_position_lse(z: np.ndarray, r_mat: np.ndarray, cfg: Config, sensors
     return p, cov
 
 
+# =============================================================================
+# 8. EKF TAKİP ALGORİTMASI
+# -----------------------------------------------------------------------------
+# TDOA ölçüm modeli doğrusal olmadığı için klasik Kalman filtresi yerine EKF
+# kullanılır. Hareket modeli sabit hızlıdır; ölçüm modeli her adımda Jacobian
+# ile doğrusallaştırılır.
+# =============================================================================
+
 def run_ekf_tracker(measurements: dict[str, np.ndarray], init: dict[str, np.ndarray], cfg: Config, sensors: np.ndarray) -> dict[str, np.ndarray]:
+    """LSE başlangıcından sonra TDOA ölçümleriyle EKF konum/hız takibi yapar."""
     k_count = measurements["z_range_diff"].shape[0]
     state = np.zeros((k_count, 4), dtype=float)
     cov = np.zeros((k_count, 4, 4), dtype=float)
@@ -296,6 +395,7 @@ def run_ekf_tracker(measurements: dict[str, np.ndarray], init: dict[str, np.ndar
 
 
 def tdoa_measurement_model(position: np.ndarray, sensors: np.ndarray, reference_sensor: int) -> tuple[np.ndarray, np.ndarray]:
+    """TDOA menzil farkı ölçüm fonksiyonunu ve konuma göre Jacobian'ını hesaplar."""
     p = np.asarray(position, dtype=float)
     m = sensors.shape[0]
     other = [i for i in range(m) if i != reference_sensor]
@@ -308,7 +408,16 @@ def tdoa_measurement_model(position: np.ndarray, sensors: np.ndarray, reference_
     return h, h_pos
 
 
+# =============================================================================
+# 9. PERFORMANS METRİKLERİ VE DENEY KOŞULARI
+# -----------------------------------------------------------------------------
+# Bu bölüm tek bir sensör yerleşimini çalıştırmak, Monte Carlo tekrarı yapmak,
+# RMSE ve sensör geometrisi koşul sayısı gibi metrikleri hesaplamak için
+# kullanılır.
+# =============================================================================
+
 def compute_metrics(true_positions: np.ndarray, estimated_positions: np.ndarray) -> dict[str, float]:
+    """Gerçek ve tahmin edilen konumlar arasındaki temel hata metriklerini hesaplar."""
     error = np.linalg.norm(estimated_positions - true_positions, axis=1)
     return {
         "rmse_position_m": float(np.sqrt(np.mean(error**2))),
@@ -324,6 +433,7 @@ def evaluate_layout(
     rng: np.random.Generator,
     noise_mode: str,
 ) -> dict[str, object]:
+    """Bir sensör geometrisi ve gürültü modu için tüm takip zincirini çalıştırır."""
     measurements = generate_tdoa_measurements(true_positions, cfg, sensors, rng, noise_mode)
     init = initialize_with_lse(measurements, cfg, sensors)
     ekf = run_ekf_tracker(measurements, init, cfg, sensors)
@@ -334,6 +444,7 @@ def evaluate_layout(
 
 
 def monte_carlo_layout(cfg: Config, true_positions: np.ndarray, sensors: np.ndarray, noise_mode: str, base_seed: int) -> dict[str, float]:
+    """Aynı sensör geometrisini farklı rastgele gürültülerle tekrar ederek ortalama performansı hesaplar."""
     rmse = np.zeros(cfg.monte_carlo_runs, dtype=float)
     mean_error = np.zeros(cfg.monte_carlo_runs, dtype=float)
     max_error = np.zeros(cfg.monte_carlo_runs, dtype=float)
@@ -352,6 +463,7 @@ def monte_carlo_layout(cfg: Config, true_positions: np.ndarray, sensors: np.ndar
 
 
 def mean_condition_number(true_positions: np.ndarray, sensors: np.ndarray, cfg: Config) -> float:
+    """TDOA Jacobian geometrisinin ortalama koşul sayısını hesaplar."""
     values = []
     for p in true_positions:
         _, h_pos = tdoa_measurement_model(p, sensors, cfg.reference_sensor)
@@ -359,11 +471,21 @@ def mean_condition_number(true_positions: np.ndarray, sensors: np.ndarray, cfg: 
     return float(np.mean(values))
 
 
+# =============================================================================
+# 10. GEOMETRİK KESİŞİM YARDIMCILARI
+# -----------------------------------------------------------------------------
+# NLOS kararını vermek için robot-sensör doğru parçasının şişirilmiş engellerle
+# kesişip kesişmediği kontrol edilir. Aşağıdaki küçük yardımcı fonksiyonlar bu
+# geometrik testi yapar.
+# =============================================================================
+
 def line_intersects_any_obstacle(p1: np.ndarray, p2: np.ndarray, obstacles: list[tuple[float, float, float, float]]) -> bool:
+    """Bir doğru parçasının herhangi bir şişirilmiş engelle kesişip kesişmediğini döndürür."""
     return any(segment_intersects_rect(p1, p2, rect) for rect in obstacles)
 
 
 def segment_intersects_rect(p1: np.ndarray, p2: np.ndarray, rect: tuple[float, float, float, float]) -> bool:
+    """Bir doğru parçasının bir dikdörtgenle kesişip kesişmediğini kontrol eder."""
     xmin, ymin, xmax, ymax = rect
     if xmin <= p1[0] <= xmax and ymin <= p1[1] <= ymax:
         return True
@@ -375,14 +497,24 @@ def segment_intersects_rect(p1: np.ndarray, p2: np.ndarray, rect: tuple[float, f
 
 
 def segments_intersect(a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray) -> bool:
+    """İki doğru parçasının kesişim testini yapar."""
     return ccw(a, c, d) != ccw(b, c, d) and ccw(a, b, c) != ccw(a, b, d)
 
 
 def ccw(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> bool:
+    """Üç noktanın saat yönünün tersinde sıralanıp sıralanmadığını döndürür."""
     return bool((c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0]))
 
 
+# =============================================================================
+# 11. CSV VE GRAFİK YARDIMCILARI
+# -----------------------------------------------------------------------------
+# Analiz dosyaları bu fonksiyonları kullanarak ortak biçimde CSV yazar ve
+# fabrika haritası üzerinde sensör/rota/tahmin görselleri üretir.
+# =============================================================================
+
 def write_rows(path: Path, rows: list[dict[str, object]]) -> None:
+    """Sözlük listesi biçimindeki analiz sonuçlarını CSV dosyasına yazar."""
     if not rows:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -393,6 +525,7 @@ def write_rows(path: Path, rows: list[dict[str, object]]) -> None:
 
 
 def draw_environment_base(ax, cfg: Config) -> None:
+    """Fabrika bölgelerini, dış sınırı ve şişirilmiş engelleri verilen eksene çizer."""
     zones = [
         ((0.0, 20.0), 25.0, 10.0, "#dbeafe", "Parking Docks"),
         ((0.0, 10.0), 25.0, 10.0, "#fde68a", "Battery Loading / Pickup"),
@@ -414,6 +547,7 @@ def draw_environment_base(ax, cfg: Config) -> None:
 
 
 def mark_mission_points(ax) -> None:
+    """Başlangıç, pickup, Gate-2 ve drop-off görev noktalarını harita üzerinde işaretler."""
     markers = [
         (PARKING_START_INDEX, "Start", "#2563eb", "o"),
         (PICKUP_INDEX, "Pickup", "#f59e0b", "D"),
@@ -435,6 +569,7 @@ def plot_case_map_and_error(
     output_path: Path,
     title: str,
 ) -> np.ndarray:
+    """Tek bir deney için harita+tahmin grafiği ve zaman-hata grafiğini birlikte üretir."""
     ekf = result["ekf"]
     measurements = result["measurements"]
     metrics = result["metrics"]

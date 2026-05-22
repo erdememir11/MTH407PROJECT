@@ -1,3 +1,19 @@
+"""
+analysis_pipeline.py
+
+Bu dosya baseline ve realistic gürültü senaryolarında ortak kullanılan analiz
+akışını içerir. Doğrudan çalıştırılması gerekmez; `run_02_baseline_constant_noise.py`
+ve `run_03_realistic_los_nlos_noise.py` bu dosyadaki `run_noise_analysis`
+fonksiyonunu çağırır.
+
+Ana görevleri:
+1. 4 sensörlü 6 farklı geometriyi tek tek çalıştırmak.
+2. Her geometri için gerçek yol vs EKF tahmini grafiği üretmek.
+3. 4 sensörlü geometrilerin hata ve RMSE karşılaştırmalarını çizmek.
+4. Sensör sayısı 4'ten 10'a çıktığında performans değişimini analiz etmek.
+5. Grafiklerin yanında CSV özet tabloları üretmek.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,7 +34,17 @@ from project_model import (
 )
 
 
+# =============================================================================
+# 1. ANA ANALİZ AKIŞI
+# -----------------------------------------------------------------------------
+# run_noise_analysis fonksiyonu bir gürültü senaryosunu baştan sona çalıştırır.
+# Gürültü senaryosu parametre olarak verilir:
+# - baseline_constant_los
+# - realistic_los_nlos
+# =============================================================================
+
 def run_noise_analysis(noise_mode: str, output_dir: Path, title: str, seed_base: int) -> None:
+    """Verilen gürültü modu için tüm 4 sensör ve 4-10 sensör analiz çıktılarını üretir."""
     cfg = Config()
     output_dir.mkdir(parents=True, exist_ok=True)
     t, truth_state = simulate_robot_motion(cfg)
@@ -78,7 +104,16 @@ def run_noise_analysis(noise_mode: str, output_dir: Path, title: str, seed_base:
     print(f"{title} outputs generated: {output_dir.resolve()}")
 
 
+# =============================================================================
+# 2. 4 SENSÖRLÜ GEOMETRİLERİN HATA KARŞILAŞTIRMASI
+# -----------------------------------------------------------------------------
+# Bu grafik, G1-G6 geometrilerinin zamana bağlı konum hatalarını aynı eksende
+# gösterir. Böylece sadece RMSE değil, hatanın rotanın hangi kısmında arttığı da
+# görülebilir.
+# =============================================================================
+
 def plot_four_sensor_error_comparison(t: np.ndarray, error_series: dict[str, np.ndarray], output_path: Path, title: str) -> None:
+    """4 sensörlü tüm geometrilerin zaman-hata eğrilerini tek grafikte karşılaştırır."""
     fig, ax = plt.subplots(figsize=(11, 6), dpi=150)
     for name, error in error_series.items():
         ax.plot(t, error, linewidth=1.4, label=GEOMETRY_LABELS[name])
@@ -93,7 +128,15 @@ def plot_four_sensor_error_comparison(t: np.ndarray, error_series: dict[str, np.
     plt.close(fig)
 
 
+# =============================================================================
+# 3. 4 SENSÖRLÜ GEOMETRİLERİN RMSE KARŞILAŞTIRMASI
+# -----------------------------------------------------------------------------
+# Bu bölüm, her geometri için Monte Carlo ortalama RMSE ve standart sapmayı
+# gösteren özet grafiği üretir. Tekil koşu RMSE'si de çizgi olarak eklenir.
+# =============================================================================
+
 def plot_four_sensor_rmse_comparison(rows: list[dict[str, object]], output_path: Path, title: str) -> None:
+    """4 sensör geometrilerinin Monte Carlo ortalama RMSE değerlerini çizer."""
     labels = [str(row["label"]).replace(" ", "\n") for row in rows]
     mean_rmse = np.array([float(row["mean_rmse_m"]) for row in rows])
     std_rmse = np.array([float(row["std_rmse_m"]) for row in rows])
@@ -113,7 +156,15 @@ def plot_four_sensor_rmse_comparison(rows: list[dict[str, object]], output_path:
     plt.close(fig)
 
 
+# =============================================================================
+# 4. SENSÖR SAYISI ANALİZİ
+# -----------------------------------------------------------------------------
+# Bu bölüm, sensör sayısı 4'ten 10'a artırıldığında RMSE, geometri koşul sayısı
+# ve tekil koşudaki ortalama NLOS sensör sayısının nasıl değiştiğini gösterir.
+# =============================================================================
+
 def plot_sensor_count_comparison(rows: list[dict[str, object]], output_path: Path, title: str) -> None:
+    """4-10 sensör sayısı analizini üç alt grafik halinde üretir."""
     counts = np.array([int(row["sensor_count"]) for row in rows])
     mean_rmse = np.array([float(row["mean_rmse_m"]) for row in rows])
     std_rmse = np.array([float(row["std_rmse_m"]) for row in rows])
